@@ -1,0 +1,52 @@
+# Node modules and packages
+node_modules/
+
+# Environment variables and secret files
+.env
+.env.*
+*.env
+secret.*
+credentials.json
+
+# Log files
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Build and output directories
+dist/
+build/
+tmp/
+temp/
+.cache/
+coverage/
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# OS generated files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# IDE/editor folders and files
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Python cache files (if used)
+__pycache__/
+*.py[cod]
+*$py.class
+
