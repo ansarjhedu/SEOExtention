@@ -1,22 +1,25 @@
+// components/SummaryWidgets.js
+
 import React from 'react';
 
 export default function SummaryWidgets({ links }) {
   const totals = {
     all: links.length,
-    page: links.filter(l => l.category === 'page').length, 
-    product: links.filter(l => l.category === 'product').length,
-    collection: links.filter(l => l.category === 'collection').length,
-    blog: links.filter(l => l.category === 'blog').length,
-    broken: links.filter(l => l.category === 'broken').length, // Broken Links Count
+    inventory: links.filter(l => l.category === 'inventory').length,
+    collections: links.filter(l => l.category === 'collection').length,
+    vehicles: links.filter(l => l.category === 'product').length,
+    promotions: links.filter(l => l.category === 'page' && l.subCategory === 'promotion-page').length,
+    parts: links.filter(l => l.category === 'page' && l.subCategory === 'parts-page').length,
+    static: links.filter(l => l.category === 'page' && l.subCategory !== 'promotion-page' && l.subCategory !== 'parts-page').length,
   };
 
   const metrics = [
     { key: 'all', label: 'All', color: 'text-slate-200', bg: 'bg-slate-900/40' },
-    { key: 'page', label: 'Pages', color: 'text-violet-400', bg: 'bg-violet-950/10' },
-    { key: 'product', label: 'Products', color: 'text-emerald-400', bg: 'bg-emerald-950/10' },
-    { key: 'collection', label: 'Colls', color: 'text-sky-400', bg: 'bg-sky-950/10' },
-    { key: 'blog', label: 'Blogs', color: 'text-amber-400', bg: 'bg-amber-950/10' },
-    { key: 'broken', label: 'Broken', color: 'text-rose-400', bg: 'bg-rose-950/10' }, // Highlighted in Rose
+    { key: 'inventory', label: 'Inventory', color: 'text-sky-400', bg: 'bg-sky-950/10' },
+    { key: 'collections', label: 'Brands', color: 'text-violet-400', bg: 'bg-violet-950/10' },
+    { key: 'vehicles', label: 'Products', color: 'text-emerald-400', bg: 'bg-emerald-950/10' },
+    { key: 'promotions', label: 'Promos', color: 'text-indigo-400', bg: 'bg-indigo-950/10' },
+    { key: 'parts', label: 'Parts', color: 'text-rose-400', bg: 'bg-rose-950/10' },
   ];
 
   return (

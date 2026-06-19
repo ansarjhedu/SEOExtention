@@ -1,12 +1,19 @@
+// src/App.js
+
 import React, { useState, useEffect, useRef } from 'react';
 import io from 'socket.io-client';
-import * as XLSX from 'xlsx';
 
 import Header from './components/Header';
 import CrawlProgress from './components/CrawlProgress';
 import SummaryWidgets from './components/SummaryWidgets';
 import LinkList from './components/LinkList';
 import EmptyState from './components/EmptyState';
+
+// Decoupled Spreadsheet Exporter Utilities
+import { 
+  exportCrawlDataToExcel, 
+  constructGroupedDataFromFlatList 
+} from './utils/excelExporter';
 
 function App() {
   const [links, setLinks] = useState([]);
@@ -31,9 +38,12 @@ function App() {
   // Numerical queue counts
   const [pagesCrawled, setPagesCrawled] = useState(0);
   const [queueSize, setQueueSize] = useState(0);
+
+  // Grouped datasets returned from server deep crawls
+  const [groupedData, setGroupedData] = useState(null);
   
-  // Compiled anchor text analysis from backend
-  const [anchorAnalysis, setAnchorAnalysis] = useState([]);
+  // Corporate and Address Profiles
+  const [dealershipProfile, setDealershipProfile] = useState(null);
 
   // Single crawl engine state tracking
   const [workers, setWorkers] = useState([
@@ -41,13 +51,13 @@ function App() {
   ]);
   
   const socketRef = useRef(null);
-
   const activeTabRef = useRef(activeTab);
+
   useEffect(() => {
     activeTabRef.current = activeTab;
   }, [activeTab]);
 
-  // 1. Establish persistent WebSocket stream (never resets)
+  // Establish persistent WebSocket stream
   useEffect(() => {
     socketRef.current = io('http://localhost:5000', {
       reconnection: true,
@@ -68,49 +78,46 @@ function App() {
       setServerOnline(false);
     });
 
-    socketRef.current.on('workers_init', (initialWorkers) => {
-      setWorkers(initialWorkers);
-    });
-
-    // Synchronize complete state updates for work-stealing queues
     socketRef.current.on('workers_update', (updatedWorkers) => {
       setWorkers(updatedWorkers);
     });
 
-    socketRef.current.on('links_discovered', (newLinks) => {
-      setLinks((prevLinks) => {
-        const filteredNew = newLinks.filter(
-          newL => !prevLinks.some(prevL => prevL.url === newL.url)
-        );
-        if (filteredNew.length === 0) return prevLinks;
-        return [...filteredNew, ...prevLinks];
-      });
-    });
+    // Unpack grouped payloads and safely flatten Promotions & Parts
+    socketRef.current.on('crawl_data_grouped', (data) => {
+      if (!data) return;
+      
+      const { grouped, dealershipProfile: profile } = data;
+      
+      setGroupedData(grouped);
+      setDealershipProfile(profile);
 
-    socketRef.current.on('link_updated', (updatedData) => {
-      setLinks((prevLinks) => {
-        const index = prevLinks.findIndex(l => l.url === updatedData.url);
-        if (index !== -1) {
-          return prevLinks.map(l => 
-            l.url === updatedData.url 
-              ? { ...l, category: updatedData.category, statusCode: updatedData.statusCode, text: updatedData.text } 
-              : l
-          );
-        } else {
-          const newBrokenRecord = {
-            url: updatedData.url,
-            text: updatedData.text,
-            type: 'internal',
-            category: updatedData.category,
-            statusCode: updatedData.statusCode
-          };
-          return [newBrokenRecord, ...prevLinks];
-        }
-      });
+      if (grouped) {
+        const flatLinks = [
+          ...(grouped?.collections?.brandDirectories || []),
+          ...(grouped?.collections?.brandModelLists || []),
+          ...(grouped?.collections?.modelCatalogFilters || []),
+          ...(grouped?.inventory?.newInventory?.mainLinks || []),
+          ...(grouped?.inventory?.newInventory?.vehicles || []),
+          ...(grouped?.inventory?.usedInventory?.mainLinks || []),
+          ...(grouped?.inventory?.usedInventory?.vehicles || []),
+          ...(grouped?.inventory?.generalInventory?.mainLinks || []),
+          ...(grouped?.inventory?.generalInventory?.vehicles || []),
+          ...(grouped?.promotions || []), // Flattens Promotions
+          ...(grouped?.parts || []),      // Flattens Parts
+          ...(grouped?.staticPages || []),
+          ...(grouped?.other || [])
+        ];
+        setLinks(flatLinks);
+      }
     });
 
     socketRef.current.on('crawl_status_update', (data) => {
       setIsPaused(data.isPaused);
+      if (data.isTerminated) {
+        setScanning(false);
+        setIsPaused(false);
+        setWorkers([{ id: 1, currentUrl: '', status: 'idle', processedCount: 0, queueSize: 0 }]);
+      }
     });
 
     socketRef.current.on('crawl_status', (data) => {
@@ -118,7 +125,6 @@ function App() {
       setBackendStatus(data.message);
       setCrawlProgress(data.progress);
       
-      // Sync numerical progress indicators
       if (data.pagesCrawled !== undefined) setPagesCrawled(data.pagesCrawled);
       if (data.queueSize !== undefined) setQueueSize(data.queueSize);
 
@@ -127,11 +133,6 @@ function App() {
         setScanning(false);
         setIsPaused(false);
         setWorkers([{ id: 1, currentUrl: '', status: 'idle', processedCount: 0, queueSize: 0 }]);
-        
-        // Save anchor analytics received from backend
-        if (data.anchorAnalysis) {
-          setAnchorAnalysis(data.anchorAnalysis);
-        }
       }
     });
 
@@ -142,7 +143,7 @@ function App() {
     };
   }, []);
 
-  // 2. Tab Tracking & Responsive Auto-Rebind
+  // Tab Tracking & Auto-Rebind
   useEffect(() => {
     async function initActiveTab() {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -185,16 +186,18 @@ function App() {
     };
   }, []);
 
-  const isSystemPage = activeTab.url.startsWith('chrome://') || activeTab.url.startsWith('about:') || !activeTab.url;
+  const isTabLoading = !activeTab.url;
+  const isSystemPage = activeTab.url && (activeTab.url.startsWith('chrome://') || activeTab.url.startsWith('about:'));
 
   const handleScan = async () => {
-    if (isSystemPage) return;
+    if (isSystemPage || isTabLoading) return;
     setScanning(true);
     setIsPaused(false);
     setBackendStatus('');
     setCrawlProgress(0);
     setLinks([]);
-    setAnchorAnalysis([]);
+    setGroupedData(null);
+    setDealershipProfile(null);
     setScannedUrl(activeTab.url);
     setPagesCrawled(0);
     setQueueSize(1);
@@ -223,31 +226,20 @@ function App() {
               .map(item => {
                 const lowerUrl = item.url.toLowerCase();
                 let category = 'other';
+                let subCategory = '';
                 
                 if (lowerUrl.includes('/products/')) {
                   category = 'product';
                 } else if (lowerUrl.includes('/collections/')) {
                   category = 'collection';
-                } else if (lowerUrl.includes('/blogs/') || lowerUrl.includes('/articles/')) {
-                  category = 'blog';
+                } else if (lowerUrl.includes('/inventory') || lowerUrl.includes('/search')) {
+                  category = 'inventory';
+                  subCategory = 'general-inventory';
                 } else {
-                  const staticPagePaths = ['/about', '/contact', '/faq', '/privacy', '/terms', '/policy', '/support', '/services', '/help', '/info'];
-                  try {
-                    const url = new URL(item.url);
-                    const target = new URL(activeTab.url);
-                    const pathname = url.pathname.toLowerCase();
-                    
-                    const isRoot = url.origin === target.origin && (pathname === '/' || pathname === '');
-                    const hasPagesPrefix = lowerUrl.includes('/pages/');
-                    const isCommonStaticPage = staticPagePaths.some(p => pathname === p || pathname === p + '/');
-
-                    if (isRoot || hasPagesPrefix || isCommonStaticPage) {
-                      category = 'page';
-                    }
-                  } catch(e) {}
+                  category = 'page';
                 }
                 
-                return { ...item, category, type: 'internal' };
+                return { ...item, category, subCategory, type: 'internal' };
               });
             setLinks(processedLocal);
           } else {
@@ -270,22 +262,30 @@ function App() {
   };
 
   const handlePause = () => {
-    if (socketRef.current) socketRef.current.emit('pause_crawl');
+    if (socketRef.current) socketRef.current.emit('pause_crawl', { targetUrl: activeTab.url });
   };
 
   const handleResume = () => {
-    if (socketRef.current) socketRef.current.emit('resume_crawl');
+    if (socketRef.current) socketRef.current.emit('resume_crawl', { targetUrl: activeTab.url });
   };
 
   const handleTerminate = () => {
-    if (socketRef.current) socketRef.current.emit('terminate_crawl');
+    if (socketRef.current) socketRef.current.emit('terminate_crawl', { targetUrl: activeTab.url });
   };
 
   const filteredLinks = links.filter(link => {
-    const matchesCategory = filter === 'all' || link.category === filter;
+    // Isolate Tab routing for Promotions, Parts, and Pages
+    const matchesCategory = 
+      filter === 'all' || 
+      (filter === 'promotions' && link.category === 'page' && link.subCategory === 'promotion-page') ||
+      (filter === 'parts' && link.category === 'page' && link.subCategory === 'parts-page') ||
+      (filter === 'page' && link.category === 'page' && link.subCategory !== 'promotion-page' && link.subCategory !== 'parts-page') ||
+      (link.category === filter && filter !== 'promotions' && filter !== 'parts' && filter !== 'page');
+      
     const matchesSearch = 
       link.url.toLowerCase().includes(searchTerm.toLowerCase()) || 
       link.text.toLowerCase().includes(searchTerm.toLowerCase());
+      
     return matchesCategory && matchesSearch;
   });
 
@@ -299,10 +299,10 @@ function App() {
 
   const handleDownloadCSV = () => {
     if (filteredLinks.length === 0) return;
-    let csvContent = "data:text/csv;charset=utf-8,URL,Anchor Text,Category,Type\n";
+    let csvContent = "data:text/csv;charset=utf-8,URL,Anchor Text,Category,Type,Brand,Model,Price\n";
     filteredLinks.forEach(link => {
       const cleanText = link.text.replace(/"/g, '""');
-      csvContent += `"${link.url}","${cleanText}","${link.category}","${link.type}"\n`;
+      csvContent += `"${link.url}","${cleanText}","${link.category}","${link.type}","${link.brandName || ''}","${link.modelName || ''}","${link.price || ''}"\n`;
     });
     const encodedUri = encodeURI(csvContent);
     const linkElement = document.createElement("a");
@@ -313,53 +313,20 @@ function App() {
     document.body.removeChild(linkElement);
   };
 
-  // --- MULTI-TAB EXCEL EXPORT (Updated with Anchor Text Analysis) ---
   const handleExportXLSX = () => {
     if (links.length === 0) return;
 
-    const wb = XLSX.utils.book_new();
-
-    const mapLinkData = (dataList) => {
-      return dataList.map((link) => ({
-        URL: link.url,
-        'Anchor Text': link.text,
-        Type: link.type,
-        Category: link.category.toUpperCase(),
-        'Status Code': link.statusCode || 200,
-      }));
-    };
-
-    const tabs = [
-      { key: 'all', name: 'All Links', data: links },
-      { key: 'page', name: 'Pages', data: links.filter(l => l.category === 'page') },
-      { key: 'product', name: 'Products', data: links.filter(l => l.category === 'product') },
-      { key: 'collection', name: 'Collections', data: links.filter(l => l.category === 'collection') },
-      { key: 'blog', name: 'Blogs', data: links.filter(l => l.category === 'blog') },
-      { key: 'broken', name: 'Broken', data: links.filter(l => l.category === 'broken') },
-    ];
-
-    tabs.forEach((tab) => {
-      if (tab.data.length > 0) {
-        const formattedData = mapLinkData(tab.data);
-        const ws = XLSX.utils.json_to_sheet(formattedData);
-        XLSX.utils.book_append_sheet(wb, ws, tab.name.substring(0, 31));
-      }
-    });
-
-    // --- NEW TAB: ANCHOR TEXT DENSITY REPORT ---
-    if (anchorAnalysis && anchorAnalysis.length > 0) {
-      const formattedAnchors = anchorAnalysis.map((entry) => ({
-        'Anchor Phrase': entry.text,
-        'Usage Frequency (Density)': entry.count,
-        'Internal Targets (URLs Linked)': entry.targets.join(', '),
-      }));
-
-      const wsAnchor = XLSX.utils.json_to_sheet(formattedAnchors);
-      XLSX.utils.book_append_sheet(wb, wsAnchor, 'Anchor Text Analysis');
+    let exportPayload = groupedData;
+    
+    if (!exportPayload) {
+      exportPayload = constructGroupedDataFromFlatList(links);
     }
 
-    const cleanDomain = activeTab.url ? activeTab.url.replace(/https?:\/\/(www\.)?/, '').split('/')[0] : 'export';
-    XLSX.writeFile(wb, `LinkScout_${cleanDomain}_Audit_${Date.now()}.xlsx`);
+    const cleanDomain = activeTab.url 
+      ? activeTab.url.replace(/https?:\/\/(www\.)?/, '').split('/')[0] 
+      : 'export';
+
+    exportCrawlDataToExcel(exportPayload, cleanDomain, dealershipProfile);
   };
 
   const showNewTabBanner = links.length > 0 && scannedUrl !== activeTab.url && !isSystemPage;
@@ -388,7 +355,7 @@ function App() {
       <main className="flex-1 flex flex-col p-4 gap-4">
         
         {/* Run Mode Switcher */}
-        {!isSystemPage && !scanning && (
+        {!isSystemPage && !scanning && !isTabLoading && (
           <div className="flex rounded-md bg-slate-900 p-0.5 border border-slate-800">
             <button
               onClick={() => setCrawlMode('quick')}
@@ -407,8 +374,16 @@ function App() {
           </div>
         )}
 
-        {/* Primary Action Button or Active Controllers */}
-        {!isSystemPage ? (
+        {/* Stable Scan Controls Grid */}
+        {isTabLoading ? (
+          <button disabled className="w-full py-3 px-4 rounded-lg font-semibold text-sm bg-slate-900 text-slate-500 border border-slate-800 cursor-not-allowed">
+            Locating Active Browser Tab...
+          </button>
+        ) : isSystemPage ? (
+          <div className="w-full py-3 px-4 rounded-lg bg-slate-900 border border-slate-800 text-slate-500 text-center text-xs font-semibold">
+            System Pages Cannot Be Scanned
+          </div>
+        ) : (
           !scanning ? (
             <button
               onClick={handleScan}
@@ -417,37 +392,35 @@ function App() {
               {crawlMode === 'quick' ? 'Scan Current Page' : 'Start Deep Server Crawl'}
             </button>
           ) : (
-            crawlMode === 'deep' && (
-              <div className="flex gap-2 bg-slate-900 p-2 border border-slate-800 rounded-lg animate-fade-in">
-                {isPaused ? (
-                  <button
-                    onClick={handleResume}
-                    className="flex-1 py-2 bg-emerald-600/20 border border-emerald-500/30 hover:bg-emerald-600/30 text-emerald-400 rounded-md text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
-                  >
-                    ▶ Resume Scan
-                  </button>
-                ) : (
-                  <button
-                    onClick={handlePause}
-                    className="flex-1 py-2 bg-amber-600/20 border border-amber-500/30 hover:bg-amber-600/30 text-amber-400 rounded-md text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
-                  >
-                    ⏸ Pause Scan
-                  </button>
-                )}
-                
-                <button
-                  onClick={handleTerminate}
-                  className="flex-1 py-2 bg-rose-600/20 border border-rose-500/30 hover:bg-rose-600/30 text-rose-400 rounded-md text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
-                >
-                  ⏹ Stop Scan
-                </button>
-              </div>
-            )
+            <div className="flex gap-2 bg-slate-900 p-2 border border-slate-800 rounded-lg animate-fade-in">
+              {crawlMode === 'deep' && (
+                <>
+                  {isPaused ? (
+                    <button
+                      onClick={handleResume}
+                      className="flex-1 py-2 bg-emerald-600/20 border border-emerald-500/30 hover:bg-emerald-600/30 text-emerald-400 rounded-md text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+                    >
+                      ▶ Resume
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handlePause}
+                      className="flex-1 py-2 bg-amber-600/20 border border-amber-500/30 hover:bg-amber-600/30 text-amber-400 rounded-md text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+                    >
+                      ⏸ Pause
+                    </button>
+                  )}
+                </>
+              )}
+              
+              <button
+                onClick={handleTerminate}
+                className="flex-1 py-2 bg-rose-600/20 border border-rose-500/30 hover:bg-rose-600/30 text-rose-400 rounded-md text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+              >
+                ⏹ Stop Scan
+              </button>
+            </div>
           )
-        ) : (
-          <div className="w-full py-3 px-4 rounded-lg bg-slate-900 border border-slate-800 text-slate-500 text-center text-xs font-semibold">
-            System Pages Cannot Be Scanned
-          </div>
         )}
 
         {/* Crawl Progress Widget */}
@@ -480,11 +453,13 @@ function App() {
               <div className="flex rounded-md bg-slate-900 p-0.5 border border-slate-800 overflow-x-auto scrollbar-none">
                 {[
                   { key: 'all', label: 'All' },
-                  { key: 'page', label: 'Pages' },
+                  { key: 'inventory', label: 'Inventory' },
+                  { key: 'collection', label: 'Brands' },
                   { key: 'product', label: 'Products' },
-                  { key: 'collection', label: 'Collections' },
-                  { key: 'blog', label: 'Blogs' },
-                  { key: 'broken', label: 'Broken' }
+                  { key: 'promotions', label: 'Promotions' }, // Standalone Promotions Tab
+                  { key: 'parts', label: 'Parts' },           // Standalone Parts Tab
+                  { key: 'page', label: 'Pages' },
+                  { key: 'other', label: 'Other' }
                 ].map((tab) => (
                   <button
                     key={tab.key}
@@ -516,7 +491,7 @@ function App() {
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
-                Export to Google Sheets (XLSX)
+                Export Tabbed Excel File
               </button>
             </div>
 
