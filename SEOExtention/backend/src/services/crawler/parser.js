@@ -4,7 +4,6 @@ import * as cheerio from 'cheerio';
 import { getCleanDomain, isAssetUrl, getUrlCategoryAndSub, extractAutoDetailsFromUrl, canonicalizeUrl } from './utils.js';
 
 /**
-<<<<<<< HEAD
  * Evaluates whether a URL belongs to a valid inventory or catalog path.
  * Strictly blocks calendar, event, blog, review, and social widget loops.
  */
@@ -48,9 +47,6 @@ export function isCrawlablePath(urlStr) {
 
 /**
  * Groups discovered links for multi-tab rendering.
-=======
- * Groups a flat list of links into structural tabs for frontend display.
->>>>>>> e6404d10e599518b687077a5c772d08ec3fbf79f
  */
 export function groupDiscoveredLinks(links) {
   const grouped = {
@@ -116,11 +112,7 @@ export function groupDiscoveredLinks(links) {
 }
 
 /**
-<<<<<<< HEAD
  * Extracts MSRP pricing data.
-=======
- * Extracts MSRP pricing data safely.
->>>>>>> e6404d10e599518b687077a5c772d08ec3fbf79f
  */
 export function extractPageMetadata(html) {
   const $ = cheerio.load(html);
@@ -153,12 +145,7 @@ export function extractPageMetadata(html) {
 }
 
 /**
-<<<<<<< HEAD
  * Extracts dealership profile specifications.
-=======
- * Scrapes dealership addresses, hours, coordinates, and lending specs.
- * Includes absolute safeguards against missing attributes (TypeError protection).
->>>>>>> e6404d10e599518b687077a5c772d08ec3fbf79f
  */
 export function extractDealershipProfile(html, currentUrl) {
   const $ = cheerio.load(html);
@@ -185,7 +172,6 @@ export function extractDealershipProfile(html, currentUrl) {
   const bodyText = $('body').text();
   const lowerUrl = currentUrl.toLowerCase();
 
-  // 1. JSON-LD Parser
   $('script[type="application/ld+json"]').each((_, el) => {
     try {
       const data = JSON.parse($(el).html());
@@ -214,7 +200,6 @@ export function extractDealershipProfile(html, currentUrl) {
     } catch (e) {}
   });
 
-  // 2. DOM/Footer Fallback Scraper
   if (!profile.telephoneMainLine) {
     $('a[href^="tel:"]').each((_, el) => {
       if (!profile.telephoneMainLine) {
@@ -234,7 +219,6 @@ export function extractDealershipProfile(html, currentUrl) {
     }
   }
 
-  // Safe Iframe Scraper checking for undefined src attributes
   $('iframe[src*="google.com/maps"]').each((_, el) => {
     const src = $(el).attr('src');
     if (src) {
@@ -247,7 +231,6 @@ export function extractDealershipProfile(html, currentUrl) {
     }
   });
 
-  // Hours schedules parser
   const extractHoursByDays = (keyword) => {
     const schedule = [];
     const daysRegex = /(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun)/i;
@@ -281,7 +264,6 @@ export function extractDealershipProfile(html, currentUrl) {
   profile.salesHours = extractHoursByDays('sales') || extractHoursByDays('showroom') || 'Contact Dealer';
   profile.serviceHours = extractHoursByDays('service') || extractHoursByDays('repair') || 'Contact Dealer';
 
-  // Department Specific Deep Scans
   if (lowerUrl.includes('/finance') || lowerUrl.includes('/credit')) {
     const potentialPartners = ['chase', 'wells fargo', 'ally', 'capital one', 'santander', 'toyota financial', 'honda financial', 'yamaha financial'];
     potentialPartners.forEach(bank => {
@@ -375,15 +357,10 @@ export function parseAndExtractLinks(html, currentUrl, targetUrl, targetDomain, 
         newlyDiscoveredPageLinks.push(linkRecord);
       }
 
-<<<<<<< HEAD
       // Enforce path whitelisting on queue insertions
       const isCrawlable = category === 'product' || isCrawlablePath(cleanUrl);
 
       if (isCrawlable) {
-=======
-      // Products are skipped in Phase 1 queue and processed during Phase 2
-      if (category !== 'product') {
->>>>>>> e6404d10e599518b687077a5c772d08ec3fbf79f
         if (!session.visitedUrls.has(cleanUrl) && !session.queue.includes(cleanUrl)) {
           session.queue.push(cleanUrl);
         }

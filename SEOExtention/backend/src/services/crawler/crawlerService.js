@@ -33,11 +33,7 @@ export const runDeepCrawl = async (targetUrl, socket) => {
 
     socket.emit('crawl_status', {
       status: 'processing',
-<<<<<<< HEAD
       message: `Reconnected! Scanning remaining pages...`,
-=======
-      message: `Reconnected! Processing deep crawls...`,
->>>>>>> e6404d10e599518b687077a5c772d08ec3fbf79f
       progress: existing.progress,
       linksFoundCount: existing.discoveredLinks.length,
       pagesCrawled: existing.pagesCrawledCount,
@@ -56,11 +52,7 @@ export const runDeepCrawl = async (targetUrl, socket) => {
     isTerminated: false,
     limiter: new Bottleneck({ maxConcurrent: 1, minTime: 600 }),
     visitedUrls: new Set(),
-<<<<<<< HEAD
     scannedIndex: new Set(), // 100% secure lock preventing duplicate execution
-=======
-    scannedIndex: new Set(),
->>>>>>> e6404d10e599518b687077a5c772d08ec3fbf79f
     discoveredLinks: [],
     seenUniqueLinks: new Set(),
     pagesCrawledCount: 0,
@@ -69,16 +61,6 @@ export const runDeepCrawl = async (targetUrl, socket) => {
     engineStatus: 'idle',
     progress: 1,
 
-<<<<<<< HEAD
-=======
-    // Phase Properties
-    phase: 'discovery',
-    extractionQueue: [],
-    extractedCount: 0,
-    totalToExtract: 0,
-
-    // Aggregator Context
->>>>>>> e6404d10e599518b687077a5c772d08ec3fbf79f
     dealershipProfile: {
       dealershipName: '',
       legalCorporateName: '',
@@ -117,18 +99,9 @@ export const runDeepCrawl = async (targetUrl, socket) => {
       }]);
     };
 
-<<<<<<< HEAD
     session.socket.emit('crawl_status', {
       status: 'processing',
       message: `Scanning and extracting page details in real-time...`,
-=======
-    // =================================================================
-    // PHASE 1: DISCOVERY & DATA EXTRACTION
-    // =================================================================
-    session.socket.emit('crawl_status', {
-      status: 'processing',
-      message: `Phase 1/2: Discovering and scanning site pages...`,
->>>>>>> e6404d10e599518b687077a5c772d08ec3fbf79f
       progress: 2,
       pagesCrawled: 0,
       queueSize: 1,
@@ -155,7 +128,6 @@ export const runDeepCrawl = async (targetUrl, socket) => {
       if (response && response.data) {
         parseAndExtractLinks(response.data, url, targetUrl, targetDomain, session);
 
-<<<<<<< HEAD
         // Instant, on-the-fly extraction of pricing/metadata from the DOM
         const meta = extractPageMetadata(response.data);
 
@@ -170,9 +142,6 @@ export const runDeepCrawl = async (targetUrl, socket) => {
         }
 
         // Extract dealership profile on startup index pages
-=======
-        // Extract dealership profile once on index page load
->>>>>>> e6404d10e599518b687077a5c772d08ec3fbf79f
         if (session.pagesCrawledCount <= 5) {
           const pageProfile = extractDealershipProfile(response.data, url);
           if (pageProfile.dealershipName) session.dealershipProfile.dealershipName = pageProfile.dealershipName;
@@ -193,10 +162,6 @@ export const runDeepCrawl = async (targetUrl, socket) => {
           }
           if (pageProfile.googleBusinessUrl) session.dealershipProfile.googleBusinessUrl = pageProfile.googleBusinessUrl;
 
-<<<<<<< HEAD
-=======
-          // Safe array merging protecting against non-iterable crashes
->>>>>>> e6404d10e599518b687077a5c772d08ec3fbf79f
           session.dealershipProfile.lendingPartners = [...new Set([...(session.dealershipProfile.lendingPartners || []), ...(pageProfile?.lendingPartners || [])])];
           session.dealershipProfile.programsOffered = [...new Set([...(session.dealershipProfile.programsOffered || []), ...(pageProfile?.programsOffered || [])])];
           session.dealershipProfile.claims = [...new Set([...(session.dealershipProfile.claims || []), ...(pageProfile?.claims || [])])];
@@ -206,19 +171,11 @@ export const runDeepCrawl = async (targetUrl, socket) => {
         emitGroupedDataUpdate(session);
 
         const totalEstimatedJobs = session.pagesCrawledCount + session.queue.length;
-<<<<<<< HEAD
         session.progress = Math.min(Math.round((session.pagesCrawledCount / totalEstimatedJobs) * 100), 99);
 
         session.socket.emit('crawl_status', {
           status: 'processing',
           message: `Scanning site... (${session.pagesCrawledCount} completed, ${session.queue.length} in queue)`,
-=======
-        session.progress = Math.min(Math.round((session.pagesCrawledCount / totalEstimatedJobs) * 50), 49);
-
-        session.socket.emit('crawl_status', {
-          status: 'processing',
-          message: `Mapping site... (${session.pagesCrawledCount} directories indexed, found ${session.discoveredLinks.length} paths)`,
->>>>>>> e6404d10e599518b687077a5c772d08ec3fbf79f
           progress: session.progress,
           linksFoundCount: session.discoveredLinks.length,
           pagesCrawled: session.pagesCrawledCount,
@@ -251,107 +208,6 @@ export const runDeepCrawl = async (targetUrl, socket) => {
       }
     }
 
-<<<<<<< HEAD
-=======
-    // =================================================================
-    // PHASE 2: METADATA CLEANUP SCAN (Strictly targets VDP products)
-    // =================================================================
-    if (!session.isTerminated) {
-      session.phase = 'extraction';
-      
-      const unvisitedTargets = [...new Set(
-        session.discoveredLinks.filter(
-          link => link.category === 'product' && !session.scannedIndex.has(link.url)
-        ).map(link => link.url)
-      )];
-
-      if (unvisitedTargets.length > 0) {
-        session.extractionQueue = [...unvisitedTargets];
-        session.totalToExtract = unvisitedTargets.length;
-        session.extractedCount = 0;
-
-        session.socket.emit('crawl_status', {
-          status: 'processing',
-          message: `Phase 2/2: Verification scan on ${session.totalToExtract} remaining targets...`,
-          progress: 50,
-          linksFoundCount: session.discoveredLinks.length,
-          pagesCrawled: session.pagesCrawledCount,
-          queueSize: session.totalToExtract,
-        });
-
-        const processTargetPage = async (url) => {
-          if (session.isTerminated || session.scannedIndex.has(url)) return;
-          session.scannedIndex.add(url);
-          session.visitedUrls.add(url);
-
-          session.pagesCrawledCount++;
-          session.extractedCount++;
-          session.currentUrl = url;
-          session.engineStatus = 'crawling';
-          emitEngineUpdate(session.extractionQueue.length);
-
-          const jitterDelay = Math.floor(Math.random() * 400) + 200;
-          await new Promise(resolve => setTimeout(resolve, jitterDelay));
-
-          const response = await fetchPage(url, session, rootUrl.origin);
-
-          if (response && response.data) {
-            const meta = extractPageMetadata(response.data);
-
-            const matchedRecord = session.discoveredLinks.find(link => link.url === url);
-            if (matchedRecord) {
-              if (matchedRecord.category === 'product') {
-                matchedRecord.price = meta.price;
-                matchedRecord.verificationStatus = (meta.price && matchedRecord.modelName) ? 'verified' : 'missing';
-              } else {
-                matchedRecord.verificationStatus = 'not_applicable';
-              }
-            }
-            emitGroupedDataUpdate(session);
-          }
-
-          session.progress = 50 + Math.min(
-            Math.round((session.extractedCount / session.totalToExtract) * 50),
-            49
-          );
-
-          session.socket.emit('crawl_status', {
-            status: 'processing',
-            message: `Deep scanning remaining details... (${session.extractedCount} / ${session.totalToExtract} pages verified)`,
-            progress: session.progress,
-            linksFoundCount: session.discoveredLinks.length,
-            pagesCrawled: session.pagesCrawledCount,
-            queueSize: session.extractionQueue.length,
-          });
-
-          session.engineStatus = 'idle';
-          session.currentUrl = '';
-          emitEngineUpdate(session.extractionQueue.length);
-        };
-
-        while (session.extractionQueue.length > 0) {
-          if (session.isTerminated) break;
-
-          if (session.isPaused) {
-            await new Promise(resolve => setTimeout(resolve, 500));
-            continue;
-          }
-
-          const nextTarget = session.extractionQueue.shift();
-          if (!nextTarget) continue;
-
-          try {
-            await session.limiter.schedule(() => processTargetPage(nextTarget));
-          } catch (err) {
-            console.error(`Deep scan error on ${nextTarget}: ${err.message}`);
-            session.engineStatus = 'idle';
-            emitEngineUpdate(session.extractionQueue.length);
-          }
-        }
-      }
-    }
-
->>>>>>> e6404d10e599518b687077a5c772d08ec3fbf79f
     // --- DB PERSISTENCE ---
     await Scan.create({
       targetUrl,
