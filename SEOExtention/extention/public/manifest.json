@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "LinkScout By Ansar Jhedu",
+  "name": "MaxOpp aiSEO crawler",
   "version": "1.0.0",
   "description": "High-accuracy client-side link extraction and crawling tool for SEO audits.",
   "permissions": [
@@ -19,6 +19,6 @@
     "default_path": "index.html"
   },
   "action": {
-    "default_title": "Open LinkScout"
+    "default_title": "Open MAXOP"
   }
 }
