@@ -4,51 +4,53 @@ import * as cheerio from 'cheerio';
 import { getCleanDomain, isAssetUrl, getUrlCategoryAndSub, extractAutoDetailsFromUrl, canonicalizeUrl } from './utils.js';
 
 /**
- * 輔助函式：按星期/天（Day-by-Day）精準提取營業時間。
- * 會自動搜尋包含特定關鍵字（如 sales 或 service）且符合星期與時間格式的文本行。
+<<<<<<< HEAD
+ * Evaluates whether a URL belongs to a valid inventory or catalog path.
+ * Strictly blocks calendar, event, blog, review, and social widget loops.
  */
-function extractHoursByDays($, keyword) {
-  const schedule = [];
-  // 匹配星期的英文縮寫與全稱
-  const daysRegex = /(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun)/i;
-  // 匹配時間範圍（如 9:00 am - 6:00 pm, 8am-5pm 等）
-  const timeRegex = /\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s*-\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?/i;
+export function isCrawlablePath(urlStr) {
+  const lowerUrl = urlStr.toLowerCase();
+  
+  // Exclude infinite navigation loops and administrative directories
+  const blacklistDirectories = [
+    '/event', '/calendar', '/news', '/gallery', '/review', '/testimonial', 
+    '/social', '/widget', '/blog', '/article', '/post', '/tag', '/category/blog',
+    '/forum', '/job', '/career', '/employment', '/join-our-team'
+  ];
 
-  // 1. 先從包含關鍵字的特定 HTML 元素中尋找
-  $('*').each((_, el) => {
-    const text = $(el).text().trim();
-    // 限制長度小於 500 字，避免抓到整個 body 造成混亂
-    if (new RegExp(keyword, 'i').test(text) && daysRegex.test(text) && text.length < 500) {
-      // 依換行符、逗號、分號或多個空格將文本拆分成單行
-      const lines = text.split(/[\n,;]|\s{3,}/);
-      lines.forEach(line => {
-        const cleanLine = line.trim().replace(/\s+/g, ' ');
-        // 如果該單行同時包含星期與時間格式，且長度合理，則視為有效營業時間
-        if (daysRegex.test(cleanLine) && timeRegex.test(cleanLine) && cleanLine.length < 100) {
-          schedule.push(cleanLine);
-        }
-      });
-    }
-  });
-
-  // 2. 備用方案：若上述精準查找未果，則逐行掃描整頁 Body 文本
-  if (schedule.length === 0) {
-    const bodyLines = $('body').text().split('\n');
-    bodyLines.forEach(line => {
-      const cleanLine = line.trim().replace(/\s+/g, ' ');
-      if (new RegExp(keyword, 'i').test(cleanLine) && daysRegex.test(cleanLine) && timeRegex.test(cleanLine) && cleanLine.length < 100) {
-        schedule.push(cleanLine);
-      }
-    });
+  if (blacklistDirectories.some(dir => lowerUrl.includes(dir))) {
+    return false; 
   }
 
-  // 去除重覆項，並以 " | " 串接成乾淨的一行
-  return [...new Set(schedule)].join(' | ');
+  // Whitelist core catalog directories
+  const whitelistDirectories = [
+    '/brands', '/manufacturer-models', '/model-list', 
+    '/inventory', '/search', 'searchinventory', '-vehicles',
+    '/promotions', '/oem-promotions', '/promotion', '/promo',
+    '/parts', '/accessories', '/parts-department',
+    '/finance', '/credit', '/service', '/about', '/contact', '/faq'
+  ];
+
+  try {
+    const url = new URL(urlStr);
+    const pathname = url.pathname.toLowerCase();
+    
+    // Always permit home page routing
+    if (pathname === '/' || pathname === '') {
+      return true;
+    }
+
+    return whitelistDirectories.some(dir => pathname.includes(dir));
+  } catch (e) {
+    return false;
+  }
 }
 
 /**
- * 將扁平的已發現連結列表整理為結構化的分類，供前端 UI 與 Excel 匯出模組直接使用。
- * 將 Promotions（優惠活動）與 Parts（零件）獨立抽出，避免與常規 Collection 與 Pages 混淆。
+ * Groups discovered links for multi-tab rendering.
+=======
+ * Groups a flat list of links into structural tabs for frontend display.
+>>>>>>> e6404d10e599518b687077a5c772d08ec3fbf79f
  */
 export function groupDiscoveredLinks(links) {
   const grouped = {
@@ -62,9 +64,9 @@ export function groupDiscoveredLinks(links) {
       usedInventory: { mainLinks: [], vehicles: [] },
       generalInventory: { mainLinks: [], vehicles: [] }
     },
-    promotions: [],      // 獨立的促銷活動頁面
-    parts: [],           // 獨立的零件／配件頁面
-    staticPages: [],     // 常規靜態頁面（如：About、Contact）
+    promotions: [],      
+    parts: [],           
+    staticPages: [],
     other: []
   };
 
@@ -114,13 +116,16 @@ export function groupDiscoveredLinks(links) {
 }
 
 /**
- * 解析頁面中的 MSRP/價格資訊。
+<<<<<<< HEAD
+ * Extracts MSRP pricing data.
+=======
+ * Extracts MSRP pricing data safely.
+>>>>>>> e6404d10e599518b687077a5c772d08ec3fbf79f
  */
 export function extractPageMetadata(html) {
   const $ = cheerio.load(html);
   let extractedPrice = '';
 
-  // 優先檢查 JSON-LD 結構化資料
   $('script[type="application/ld+json"]').each((_, el) => {
     if (extractedPrice) return;
     try {
@@ -136,7 +141,6 @@ export function extractPageMetadata(html) {
     } catch (e) {}
   });
 
-  // 備用正則表達式匹配
   if (!extractedPrice) {
     const bodyText = $('body').text();
     const match = bodyText.match(/(?:price|msrp)\s*:?\s*\$?([0-9,]{3,8})/i);
@@ -149,8 +153,12 @@ export function extractPageMetadata(html) {
 }
 
 /**
- * 提取車行詳盡資訊（名稱、公司名、地址、電話、營業時間、經緯度坐標、金融與售後細節）。
- * 已更新：營業時間將精準依「星期」逐天比對提取。
+<<<<<<< HEAD
+ * Extracts dealership profile specifications.
+=======
+ * Scrapes dealership addresses, hours, coordinates, and lending specs.
+ * Includes absolute safeguards against missing attributes (TypeError protection).
+>>>>>>> e6404d10e599518b687077a5c772d08ec3fbf79f
  */
 export function extractDealershipProfile(html, currentUrl) {
   const $ = cheerio.load(html);
@@ -177,7 +185,7 @@ export function extractDealershipProfile(html, currentUrl) {
   const bodyText = $('body').text();
   const lowerUrl = currentUrl.toLowerCase();
 
-  // 1. JSON-LD 結構化資料提取
+  // 1. JSON-LD Parser
   $('script[type="application/ld+json"]').each((_, el) => {
     try {
       const data = JSON.parse($(el).html());
@@ -206,7 +214,7 @@ export function extractDealershipProfile(html, currentUrl) {
     } catch (e) {}
   });
 
-  // 2. 頁面/頁尾聯絡資訊備用提取
+  // 2. DOM/Footer Fallback Scraper
   if (!profile.telephoneMainLine) {
     $('a[href^="tel:"]').each((_, el) => {
       if (!profile.telephoneMainLine) {
@@ -226,22 +234,54 @@ export function extractDealershipProfile(html, currentUrl) {
     }
   }
 
-  // 3. 經緯度與 Google 地圖連結提取
+  // Safe Iframe Scraper checking for undefined src attributes
   $('iframe[src*="google.com/maps"]').each((_, el) => {
     const src = $(el).attr('src');
-    profile.googleBusinessUrl = src;
-    const geoMatch = src.match(/!2d(-?\d+\.\d+)!3d(-?\d+\.\d+)/);
-    if (geoMatch) {
-      profile.longitude = geoMatch[1];
-      profile.latitude = geoMatch[2];
+    if (src) {
+      profile.googleBusinessUrl = src;
+      const geoMatch = src.match(/!2d(-?\d+\.\d+)!3d(-?\d+\.\d+)/);
+      if (geoMatch) {
+        profile.longitude = geoMatch[1];
+        profile.latitude = geoMatch[2];
+      }
     }
   });
 
-  // 4. 精準按「星期/天（Day-by-Day）」比對提取營業時間
-  profile.salesHours = extractHoursByDays($, 'sales') || extractHoursByDays($, 'showroom') || 'Contact Dealer';
-  profile.serviceHours = extractHoursByDays($, 'service') || extractHoursByDays($, 'repair') || 'Contact Dealer';
+  // Hours schedules parser
+  const extractHoursByDays = (keyword) => {
+    const schedule = [];
+    const daysRegex = /(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun)/i;
+    const timeRegex = /\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s*-\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?/i;
 
-  // 5. 貸款、專案與技術政策掃描
+    $('*').each((_, el) => {
+      const text = $(el).text().trim();
+      if (new RegExp(keyword, 'i').test(text) && daysRegex.test(text) && text.length < 500) {
+        const lines = text.split(/[\n,;]|\s{3,}/);
+        lines.forEach(line => {
+          const cleanLine = line.trim().replace(/\s+/g, ' ');
+          if (daysRegex.test(cleanLine) && timeRegex.test(cleanLine) && cleanLine.length < 100) {
+            schedule.push(cleanLine);
+          }
+        });
+      }
+    });
+
+    if (schedule.length === 0) {
+      const bodyLines = $('body').text().split('\n');
+      bodyLines.forEach(line => {
+        const cleanLine = line.trim().replace(/\s+/g, ' ');
+        if (new RegExp(keyword, 'i').test(cleanLine) && daysRegex.test(cleanLine) && timeRegex.test(cleanLine) && cleanLine.length < 100) {
+          schedule.push(cleanLine);
+        }
+      });
+    }
+    return [...new Set(schedule)].join(' | ');
+  };
+
+  profile.salesHours = extractHoursByDays('sales') || extractHoursByDays('showroom') || 'Contact Dealer';
+  profile.serviceHours = extractHoursByDays('service') || extractHoursByDays('repair') || 'Contact Dealer';
+
+  // Department Specific Deep Scans
   if (lowerUrl.includes('/finance') || lowerUrl.includes('/credit')) {
     const potentialPartners = ['chase', 'wells fargo', 'ally', 'capital one', 'santander', 'toyota financial', 'honda financial', 'yamaha financial'];
     potentialPartners.forEach(bank => {
@@ -277,10 +317,6 @@ export function extractDealershipProfile(html, currentUrl) {
   return profile;
 }
 
-/**
- * 解析頁面連結並將其去重、白名單化。
- * 商品（VDP）連結會在此處立即推入 queue 中，進行即時（On-the-fly）價格掃描。
- */
 export function parseAndExtractLinks(html, currentUrl, targetUrl, targetDomain, session) {
   const $ = cheerio.load(html);
   const newlyDiscoveredPageLinks = [];
@@ -308,7 +344,7 @@ export function parseAndExtractLinks(html, currentUrl, targetUrl, targetDomain, 
           : '[No Text]';
       }
 
-      // 嚴格的分頁限制保護，防止無限爬行深層空存檔
+      // Pagination protection
       const pageParam = absoluteUrl.searchParams.get('page') || absoluteUrl.searchParams.get('p') || absoluteUrl.searchParams.get('pg');
       if (pageParam && parseInt(pageParam) > 15) {
         return; 
@@ -339,9 +375,18 @@ export function parseAndExtractLinks(html, currentUrl, targetUrl, targetDomain, 
         newlyDiscoveredPageLinks.push(linkRecord);
       }
 
-      // 所有未掃描的 canonical 連結（包括商品與頁面）皆在此推入爬取佇列中，進行即時（On-the-fly）價格掃描。
-      if (!session.visitedUrls.has(cleanUrl) && !session.queue.includes(cleanUrl)) {
-        session.queue.push(cleanUrl);
+<<<<<<< HEAD
+      // Enforce path whitelisting on queue insertions
+      const isCrawlable = category === 'product' || isCrawlablePath(cleanUrl);
+
+      if (isCrawlable) {
+=======
+      // Products are skipped in Phase 1 queue and processed during Phase 2
+      if (category !== 'product') {
+>>>>>>> e6404d10e599518b687077a5c772d08ec3fbf79f
+        if (!session.visitedUrls.has(cleanUrl) && !session.queue.includes(cleanUrl)) {
+          session.queue.push(cleanUrl);
+        }
       }
     } catch (e) {}
   });

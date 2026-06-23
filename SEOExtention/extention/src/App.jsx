@@ -59,24 +59,24 @@ function App() {
 
   // Establish persistent WebSocket stream
   useEffect(() => {
-    socketRef.current = io('http://localhost:5000', {
-      reconnection: true,
-      reconnectionDelay: 1000,
-      reconnectionDelayMax: 5000,
-      reconnectionAttempts: Infinity
-    });
+   socketRef.current = io('https://seoextention.onrender.com', {
+    reconnection: true,
+    reconnectionDelay: 1000,
+    reconnectionDelayMax: 5000,
+    reconnectionAttempts: Infinity
+  });
 
-    socketRef.current.on('connect', () => {
-      setServerOnline(true);
-      const currentTab = activeTabRef.current;
-      if (currentTab.url && !currentTab.url.startsWith('chrome://')) {
-        socketRef.current.emit('check_active_crawl', { targetUrl: currentTab.url });
-      }
-    });
+  socketRef.current.on('connect', () => {
+    setServerOnline(true);
+    const currentTab = activeTabRef.current;
+    if (currentTab.url && !currentTab.url.startsWith('chrome://')) {
+      socketRef.current.emit('check_active_crawl', { targetUrl: currentTab.url });
+    }
+  });
 
-    socketRef.current.on('disconnect', () => {
-      setServerOnline(false);
-    });
+  socketRef.current.on('disconnect', () => {
+    setServerOnline(false);
+  });
 
     socketRef.current.on('workers_update', (updatedWorkers) => {
       setWorkers(updatedWorkers);

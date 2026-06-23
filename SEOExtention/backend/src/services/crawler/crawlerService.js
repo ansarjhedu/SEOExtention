@@ -33,7 +33,11 @@ export const runDeepCrawl = async (targetUrl, socket) => {
 
     socket.emit('crawl_status', {
       status: 'processing',
+<<<<<<< HEAD
+      message: `Reconnected! Scanning remaining pages...`,
+=======
       message: `Reconnected! Processing deep crawls...`,
+>>>>>>> e6404d10e599518b687077a5c772d08ec3fbf79f
       progress: existing.progress,
       linksFoundCount: existing.discoveredLinks.length,
       pagesCrawled: existing.pagesCrawledCount,
@@ -44,18 +48,19 @@ export const runDeepCrawl = async (targetUrl, socket) => {
     return;
   }
 
-  // --- IN-MEMORY INITIALIZER ---
+  // --- INITIALIZE SESSION STATE ---
   const canonicalRoot = canonicalizeUrl(targetUrl);
   activeCrawls.set(domain, {
     socket,
     isPaused: false,
     isTerminated: false,
     limiter: new Bottleneck({ maxConcurrent: 1, minTime: 600 }),
-    
-    // Visited & Scanned Locks
-    visitedUrls: new Set(), // Kept for compatibility
-    scannedIndex: new Set(), // Strictly locks 100% of fully processed pages (0 = unscanned, 1 = scanned)
-    
+    visitedUrls: new Set(),
+<<<<<<< HEAD
+    scannedIndex: new Set(), // 100% secure lock preventing duplicate execution
+=======
+    scannedIndex: new Set(),
+>>>>>>> e6404d10e599518b687077a5c772d08ec3fbf79f
     discoveredLinks: [],
     seenUniqueLinks: new Set(),
     pagesCrawledCount: 0,
@@ -64,13 +69,16 @@ export const runDeepCrawl = async (targetUrl, socket) => {
     engineStatus: 'idle',
     progress: 1,
 
+<<<<<<< HEAD
+=======
     // Phase Properties
     phase: 'discovery',
     extractionQueue: [],
     extractedCount: 0,
     totalToExtract: 0,
 
-    // Aggregator Context (Fully Preserved)
+    // Aggregator Context
+>>>>>>> e6404d10e599518b687077a5c772d08ec3fbf79f
     dealershipProfile: {
       dealershipName: '',
       legalCorporateName: '',
@@ -93,28 +101,34 @@ export const runDeepCrawl = async (targetUrl, socket) => {
   });
 
   const session = activeCrawls.get(domain);
-  const maxSafetyCeiling = 5000;
+  const maxSafetyCeiling = 3000;
 
   try {
     const rootUrl = new URL(targetUrl);
     const targetDomain = getCleanDomain(targetUrl);
 
-    const emitEngineUpdate = (queueLengthOverride) => {
+    const emitEngineUpdate = () => {
       session.socket.emit('workers_update', [{
         id: 1,
-        queueSize: queueLengthOverride !== undefined ? queueLengthOverride : session.queue.length,
-        processedCount: session.phase === 'discovery' ? session.pagesCrawledCount : session.extractedCount,
+        queueSize: session.queue.length,
+        processedCount: session.pagesCrawledCount,
         currentUrl: session.currentUrl,
         status: session.engineStatus
       }]);
     };
 
+<<<<<<< HEAD
+    session.socket.emit('crawl_status', {
+      status: 'processing',
+      message: `Scanning and extracting page details in real-time...`,
+=======
     // =================================================================
     // PHASE 1: DISCOVERY & DATA EXTRACTION
     // =================================================================
     session.socket.emit('crawl_status', {
       status: 'processing',
       message: `Phase 1/2: Discovering and scanning site pages...`,
+>>>>>>> e6404d10e599518b687077a5c772d08ec3fbf79f
       progress: 2,
       pagesCrawled: 0,
       queueSize: 1,
@@ -123,9 +137,9 @@ export const runDeepCrawl = async (targetUrl, socket) => {
     emitEngineUpdate();
 
     const processPage = async (url) => {
-      // 1. Strict checked index lock - ignores and skips if already fully scanned (state = 1)
+      // Checked index lock - strictly prevents any duplicate execution
       if (session.isTerminated || session.scannedIndex.has(url) || session.pagesCrawledCount >= maxSafetyCeiling) return;
-      session.scannedIndex.add(url); // Set checked state index directly to 1/true immediately on start
+      session.scannedIndex.add(url);
       session.visitedUrls.add(url);
       
       session.pagesCrawledCount++;
@@ -141,7 +155,8 @@ export const runDeepCrawl = async (targetUrl, socket) => {
       if (response && response.data) {
         parseAndExtractLinks(response.data, url, targetUrl, targetDomain, session);
 
-        // Price metadata scraper
+<<<<<<< HEAD
+        // Instant, on-the-fly extraction of pricing/metadata from the DOM
         const meta = extractPageMetadata(response.data);
 
         const matchedRecord = session.discoveredLinks.find(link => link.url === url);
@@ -154,40 +169,56 @@ export const runDeepCrawl = async (targetUrl, socket) => {
           }
         }
 
-        // Dealership profile aggregator
-        const pageProfile = extractDealershipProfile(response.data, url);
-        
-        if (pageProfile.dealershipName) session.dealershipProfile.dealershipName = pageProfile.dealershipName;
-        if (pageProfile.legalCorporateName) session.dealershipProfile.legalCorporateName = pageProfile.legalCorporateName;
-        if (pageProfile.dbaAlternateName) session.dealershipProfile.dbaAlternateName = pageProfile.dbaAlternateName;
-        if (pageProfile.streetAddress) {
-          session.dealershipProfile.streetAddress = pageProfile.streetAddress;
-          session.dealershipProfile.city = pageProfile.city;
-          session.dealershipProfile.state = pageProfile.state;
-          session.dealershipProfile.zipCode = pageProfile.zipCode;
-        }
-        if (pageProfile.telephoneMainLine) session.dealershipProfile.telephoneMainLine = pageProfile.telephoneMainLine;
-        if (pageProfile.salesHours) session.dealershipProfile.salesHours = pageProfile.salesHours;
-        if (pageProfile.serviceHours) session.dealershipProfile.serviceHours = pageProfile.serviceHours;
-        if (pageProfile.latitude) {
-          session.dealershipProfile.latitude = pageProfile.latitude;
-          session.dealershipProfile.longitude = pageProfile.longitude;
-        }
-        if (pageProfile.googleBusinessUrl) session.dealershipProfile.googleBusinessUrl = pageProfile.googleBusinessUrl;
+        // Extract dealership profile on startup index pages
+=======
+        // Extract dealership profile once on index page load
+>>>>>>> e6404d10e599518b687077a5c772d08ec3fbf79f
+        if (session.pagesCrawledCount <= 5) {
+          const pageProfile = extractDealershipProfile(response.data, url);
+          if (pageProfile.dealershipName) session.dealershipProfile.dealershipName = pageProfile.dealershipName;
+          if (pageProfile.legalCorporateName) session.dealershipProfile.legalCorporateName = pageProfile.legalCorporateName;
+          if (pageProfile.dbaAlternateName) session.dealershipProfile.dbaAlternateName = pageProfile.dbaAlternateName;
+          if (pageProfile.streetAddress) {
+            session.dealershipProfile.streetAddress = pageProfile.streetAddress;
+            session.dealershipProfile.city = pageProfile.city;
+            session.dealershipProfile.state = pageProfile.state;
+            session.dealershipProfile.zipCode = pageProfile.zipCode;
+          }
+          if (pageProfile.telephoneMainLine) session.dealershipProfile.telephoneMainLine = pageProfile.telephoneMainLine;
+          if (pageProfile.salesHours) session.dealershipProfile.salesHours = pageProfile.salesHours;
+          if (pageProfile.serviceHours) session.dealershipProfile.serviceHours = pageProfile.serviceHours;
+          if (pageProfile.latitude) {
+            session.dealershipProfile.latitude = pageProfile.latitude;
+            session.dealershipProfile.longitude = pageProfile.longitude;
+          }
+          if (pageProfile.googleBusinessUrl) session.dealershipProfile.googleBusinessUrl = pageProfile.googleBusinessUrl;
 
-        session.dealershipProfile.lendingPartners = [...new Set([...session.dealershipProfile.lendingPartners, ...pageProfile.lendingPartners])];
-        session.dealershipProfile.programsOffered = [...new Set([...session.dealershipProfile.programsOffered, ...pageProfile.programsOffered])];
-        session.dealershipProfile.claims = [...new Set([...session.dealershipProfile.claims, ...pageProfile.claims])];
-        session.dealershipProfile.tiers = [...new Set([...session.dealershipProfile.tiers, ...pageProfile.tiers])];
+<<<<<<< HEAD
+=======
+          // Safe array merging protecting against non-iterable crashes
+>>>>>>> e6404d10e599518b687077a5c772d08ec3fbf79f
+          session.dealershipProfile.lendingPartners = [...new Set([...(session.dealershipProfile.lendingPartners || []), ...(pageProfile?.lendingPartners || [])])];
+          session.dealershipProfile.programsOffered = [...new Set([...(session.dealershipProfile.programsOffered || []), ...(pageProfile?.programsOffered || [])])];
+          session.dealershipProfile.claims = [...new Set([...(session.dealershipProfile.claims || []), ...(pageProfile?.claims || [])])];
+          session.dealershipProfile.tiers = [...new Set([...(session.dealershipProfile.tiers || []), ...(pageProfile?.tiers || [])])];
+        }
 
         emitGroupedDataUpdate(session);
 
         const totalEstimatedJobs = session.pagesCrawledCount + session.queue.length;
+<<<<<<< HEAD
         session.progress = Math.min(Math.round((session.pagesCrawledCount / totalEstimatedJobs) * 100), 99);
 
         session.socket.emit('crawl_status', {
           status: 'processing',
           message: `Scanning site... (${session.pagesCrawledCount} completed, ${session.queue.length} in queue)`,
+=======
+        session.progress = Math.min(Math.round((session.pagesCrawledCount / totalEstimatedJobs) * 50), 49);
+
+        session.socket.emit('crawl_status', {
+          status: 'processing',
+          message: `Mapping site... (${session.pagesCrawledCount} directories indexed, found ${session.discoveredLinks.length} paths)`,
+>>>>>>> e6404d10e599518b687077a5c772d08ec3fbf79f
           progress: session.progress,
           linksFoundCount: session.discoveredLinks.length,
           pagesCrawled: session.pagesCrawledCount,
@@ -209,7 +240,6 @@ export const runDeepCrawl = async (targetUrl, socket) => {
       }
 
       const nextUrl = session.queue.shift();
-      // Skip if URL was already processed or scanned in our checked index (state = 1)
       if (!nextUrl || session.scannedIndex.has(nextUrl)) continue;
 
       try {
@@ -221,6 +251,8 @@ export const runDeepCrawl = async (targetUrl, socket) => {
       }
     }
 
+<<<<<<< HEAD
+=======
     // =================================================================
     // PHASE 2: METADATA CLEANUP SCAN (Strictly targets VDP products)
     // =================================================================
@@ -229,8 +261,7 @@ export const runDeepCrawl = async (targetUrl, socket) => {
       
       const unvisitedTargets = [...new Set(
         session.discoveredLinks.filter(
-          link => (link.category === 'product' || link.category === 'inventory') && 
-                  !session.scannedIndex.has(link.url) // Verify against the scanned checked index
+          link => link.category === 'product' && !session.scannedIndex.has(link.url)
         ).map(link => link.url)
       )];
 
@@ -242,7 +273,7 @@ export const runDeepCrawl = async (targetUrl, socket) => {
         session.socket.emit('crawl_status', {
           status: 'processing',
           message: `Phase 2/2: Verification scan on ${session.totalToExtract} remaining targets...`,
-          progress: 90,
+          progress: 50,
           linksFoundCount: session.discoveredLinks.length,
           pagesCrawled: session.pagesCrawledCount,
           queueSize: session.totalToExtract,
@@ -250,7 +281,7 @@ export const runDeepCrawl = async (targetUrl, socket) => {
 
         const processTargetPage = async (url) => {
           if (session.isTerminated || session.scannedIndex.has(url)) return;
-          session.scannedIndex.add(url); // Set checked state index directly to 1/true immediately on start
+          session.scannedIndex.add(url);
           session.visitedUrls.add(url);
 
           session.pagesCrawledCount++;
@@ -279,9 +310,9 @@ export const runDeepCrawl = async (targetUrl, socket) => {
             emitGroupedDataUpdate(session);
           }
 
-          session.progress = 90 + Math.min(
-            Math.round((session.extractedCount / session.totalToExtract) * 9),
-            9
+          session.progress = 50 + Math.min(
+            Math.round((session.extractedCount / session.totalToExtract) * 50),
+            49
           );
 
           session.socket.emit('crawl_status', {
@@ -320,7 +351,8 @@ export const runDeepCrawl = async (targetUrl, socket) => {
       }
     }
 
-    // --- MONGO DB WRITE ---
+>>>>>>> e6404d10e599518b687077a5c772d08ec3fbf79f
+    // --- DB PERSISTENCE ---
     await Scan.create({
       targetUrl,
       links: session.discoveredLinks,

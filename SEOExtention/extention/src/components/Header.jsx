@@ -10,7 +10,7 @@ export default function Header({ scanning, serverOnline, activeTabTitle }) {
             <span className={`relative inline-flex rounded-full h-3 w-3 ${scanning ? 'bg-amber-500' : 'bg-teal-500'}`}></span>
           </span>
           <h1 className="text-md font-bold tracking-wider text-slate-200">
-            LinkScout <span className="text-xs font-normal text-slate-400">v1.0</span>
+          MaxOpp aiSEO crawler <span className="text-xs font-normal text-slate-400">v1.0</span>
           </h1>
         </div>
         
@@ -23,10 +23,10 @@ export default function Header({ scanning, serverOnline, activeTabTitle }) {
         </div>
       </div>
       
-      <div className="flex items-center justify-between text-[10px] text-slate-500 px-0.5">
+      {/* <div className="flex items-center justify-between text-[10px] text-slate-500 px-0.5">
         <span>By Ansar Jhedu</span>
         <span className="truncate max-w-[150px]">{activeTabTitle || 'Checking page...'}</span>
-      </div>
+      </div> */}
     </header>
   );
 }
