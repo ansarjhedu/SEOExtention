@@ -183,51 +183,14 @@ export const runDeepCrawl = async (targetUrl, socket) => {
     // =================================================================
     // PRE-FLIGHT: PLATFORM SNIFFER & API BYPASS
     // =================================================================
- 
     session.socket.emit("crawl_status", {
       status: "processing",
-      message: "Pre-flight: Sniffing platform architecture and sitemaps...",
+      message: "Pre-flight: Sniffing platform architecture...",
       progress: 5,
     });
 
-    // 1. Try to instantly seed the queue using the XML sitemap
-    try {
-      console.log(`[Sitemap] Attempting fast extraction for: ${rootUrl.origin}/sitemap.xml`);
-      const sitemapUrls = await extractLinksFromSitemap(rootUrl.origin);
-      
-      if (sitemapUrls && sitemapUrls.length > 0) {
-        sitemapUrls.forEach(urlStr => {
-          const cleanUrl = canonicalizeUrl(urlStr);
-          if (!session.seenUniqueLinks.has(cleanUrl)) {
-            session.seenUniqueLinks.add(cleanUrl);
-            
-            const { category, subCategory } = getUrlCategoryAndSub(cleanUrl);
-            
-            // SPEED OPTIMIZATION: Only push directories/hubs into the discovery queue. 
-            // Never push individual vehicle products into Phase 1 processing!
-            if (category !== 'product') {
-              session.queue.push({ url: cleanUrl, depth: 1 });
-            }
-            
-            session.discoveredLinks.push({
-              url: cleanUrl,
-              text: '[Sitemap Link]',
-              type: 'internal',
-              category,
-              subCategory,
-              statusCode: 200,
-              price: '',
-              verificationStatus: category === 'product' ? 'missing' : 'not_applicable'
-            });
-          }
-        });
-      }
-    } catch (sitemapErr) {
-      console.warn(`[Sitemap] Fast discovery skipped or not found: ${sitemapErr.message}`);
-    }
-
-    // 2. Run existing API sniffer check
     const sniffResult = await sniffPlatformAPI(rootUrl.origin);
+
     if (sniffResult.platform !== "unknown" && sniffResult.rawData) {
       session.socket.emit("crawl_status", {
         status: "processing",
@@ -239,7 +202,7 @@ export const runDeepCrawl = async (targetUrl, socket) => {
       session.progress = 100;
     }
 
-    
+    // =================================================================
     // PHASE 1: SITE DISCOVERY LOOP
     // =================================================================
     while (session.queue.length > 0 && session.discoveredLinks.length < 10000) {
@@ -265,33 +228,26 @@ export const runDeepCrawl = async (targetUrl, socket) => {
 
       try {
         // Wrapped with bottleneck scheduler context to obey throttling parameters smoothly
-       const response = await session.limiter.schedule(() => fetchPage(currentTarget, session, rootUrl.origin));
+     const response = await session.limiter.schedule(() => fetchPage(currentTarget, session, rootUrl.origin));
         if (response && response.data) {
-          
-          // SPEED OPTIMIZATION: Only parse the profile if we don't have the main line yet
-          // Since the footer is global, the first page (homepage) will extract 99% of this data safely.
-          if (!session.dealershipProfile.telephoneMainLine || !session.dealershipProfile.telephoneFax) {
-            console.log(`[Parser] Extracting profile metadata from hub page: ${currentTarget}`);
-            const crawledProfile = extractDealershipProfile(response.data, currentTarget);
+          const crawledProfile = extractDealershipProfile(response.data, currentTarget);
 
-            Object.keys(crawledProfile).forEach((key) => {
-              if (typeof crawledProfile[key] === "object" && crawledProfile[key] !== null && !Array.isArray(crawledProfile[key])) {
-                Object.keys(crawledProfile[key]).forEach((subKey) => {
-                  if (crawledProfile[key][subKey] && !session.dealershipProfile[key][subKey]) {
-                    session.dealershipProfile[key][subKey] = crawledProfile[key][subKey];
-                  }
-                });
-              } else {
-                if (crawledProfile[key] && !session.dealershipProfile[key]) {
-                  session.dealershipProfile[key] = crawledProfile[key];
+          // The original, working property loop
+          Object.keys(crawledProfile).forEach((key) => {
+            if (typeof crawledProfile[key] === "object" && crawledProfile[key] !== null && !Array.isArray(crawledProfile[key])) {
+              Object.keys(crawledProfile[key]).forEach((subKey) => {
+                if (crawledProfile[key][subKey] && !session.dealershipProfile[key][subKey]) {
+                  session.dealershipProfile[key][subKey] = crawledProfile[key][subKey];
                 }
+              });
+            } else {
+              if (crawledProfile[key] && !session.dealershipProfile[key]) {
+                session.dealershipProfile[key] = crawledProfile[key];
               }
-            });
-          }
+            }
+          });
 
-          // Continue extracting links normally (this is still required to discover paths)
           parseAndExtractLinks(response.data, currentTarget, targetUrl, domain, session, currentDepth);
-          
           calculateLiveInventoryMetrics(session);
           emitGroupedDataUpdate(session);
         }

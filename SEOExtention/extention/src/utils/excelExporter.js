@@ -120,6 +120,10 @@ export const exportCrawlDataToExcel = (groupedData, domainName, profileData) => 
   const productRows = [];
   const addProductVehicles = (vehicles, conditionLabel) => {
     (vehicles || []).forEach(link => {
+      // Ensure verification displays correctly based on price discovery status
+      const hasPrice = link.price && link.price !== 'Missing' && link.price !== '';
+      const finalStatus = hasPrice ? 'VERIFIED' : 'MISSING';
+
       productRows.push({
         'URL': link.url || '',
         'Anchor Text': link.text || '',
@@ -128,8 +132,8 @@ export const exportCrawlDataToExcel = (groupedData, domainName, profileData) => 
         'Brand Name': link.brandName || 'N/A',
         'Model Name': link.modelName || 'N/A',
         'Vehicle Type': link.vehicleType || 'Vehicle',
-        'Price': link.price || 'Missing',
-        'Verification Status': link.verificationStatus ? link.verificationStatus.toUpperCase() : 'MISSING'
+        'Price': link.price || 'Contact Dealer',
+        'Verification Status': finalStatus
       });
     });
   };
@@ -143,7 +147,6 @@ export const exportCrawlDataToExcel = (groupedData, domainName, profileData) => 
     autoSizeColumns(wsProd, productRows);
     XLSX.utils.book_append_sheet(wb, wsProd, 'Vehicle Products');
   }
-
   // ============================================================================
   // 3. INVENTORY COLLECTIONS SHEET
   // ============================================================================
