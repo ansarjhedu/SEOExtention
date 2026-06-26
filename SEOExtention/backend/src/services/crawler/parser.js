@@ -4,20 +4,17 @@ import * as cheerio from 'cheerio';
 import { getCleanDomain, isAssetUrl, getUrlCategoryAndSub, extractAutoDetailsFromUrl, canonicalizeUrl } from './utils.js';
 
 export function isCrawlablePath(urlStr, currentDepth = 0) {
-  // 1. DEPTH GUARD: Stop crawling 4 levels deep to prevent infinite loops
   if (currentDepth >= 4) return false;
 
   const lowerUrl = urlStr.toLowerCase();
   
-  // 2. THE BLACKLIST: Added "Parts Fiche" footprints to avoid the parts black hole
   const blacklistDirectories = [
     '/event', '/calendar', '/news', '/gallery', '/review', '/testimonial', 
     '/social', '/widget', '/blog', '/article', '/post', '/tag', '/category/blog',
     '/forum', '/job', '/career', '/employment', '/join-our-team',
-    // --- Parts Catalog / E-Commerce Traps ---
     '/oemparts', '/fiche', '/microfiche', '/parts/search', '/partsfinder', 
     '/arinet', '/cart', '/checkout', '/account', '/shop/category',
-    '/parts-diagrams', '/parts-finder' // <-- Added DX1 specific traps here!
+    '/parts-diagrams', '/parts-finder'
   ];
 
   if (blacklistDirectories.some(dir => lowerUrl.includes(dir))) return false; 
@@ -102,19 +99,49 @@ export function extractPageMetadata(html) {
   });
 
   if (!extractedPrice) {
+    const priceSelectors = ['.price', '[class*="price"]', '.sale-price', '.msrp', '.regular-price'];
+    for (const selector of priceSelectors) {
+      const text = $(selector).first().text().trim();
+      if (text && /\d/.test(text)) {
+        extractedPrice = text;
+        break;
+      }
+    }
+  }
+
+  if (!extractedPrice) {
     const bodyText = $('body').text();
     const match = bodyText.match(/(?:price|msrp)\s*:?\s*\$?([0-9,]{3,8})/i);
     if (match) extractedPrice = `$${match[1]}`;
   }
 
-  return { price: extractedPrice };
+  let year = '', brandName = '', modelName = '', vehicleType = 'Vehicle';
+  const vdpHeader = $('h1, .vdp-title, [class*="vehicle-title"]').first().text().trim();
+  
+  if (vdpHeader) {
+    const tokens = vdpHeader.toLowerCase().split(/[\s\-_%+]+/).filter(Boolean);
+    const yearMatch = vdpHeader.match(/\b(19[8-9]\d|20[0-2]\d)\b/);
+    if (yearMatch) year = yearMatch[1];
+
+    const knownBrands = ['yamaha', 'kawasaki', 'cfmoto', 'ktm', 'honda', 'suzuki', 'polaris', 'can-am', 'spyder', 'atlas', 'seadoo', 'sea-doo'];
+    const foundBrand = tokens.find(t => knownBrands.includes(t));
+    if (foundBrand) brandName = foundBrand.charAt(0).toUpperCase() + foundBrand.slice(1);
+  }
+
+  return { 
+    price: extractedPrice,
+    year,
+    brandName,
+    modelName,
+    vehicleType
+  };
 }
 
 export function extractDealershipProfile(html, currentUrl) {
   const $ = cheerio.load(html);
   const profile = {
     dealershipName: '', legalCorporateName: '', dbaAlternateName: '', streetAddress: '',
-    city: '', state: '', zipCode: '', telephoneMainLine: '', telephoneFax: '', // Added explicit fax tracking
+    city: '', state: '', zipCode: '', telephoneMainLine: '', telephoneFax: '', 
     latitude: '', longitude: '', googleBusinessUrl: '', logoUrl: '', platform: '',
     socialLinks: { facebook: '', instagram: '', youtube: '', twitter: '' },
     requiredUrls: { parts: '', service: '', finance: '' },
@@ -123,14 +150,12 @@ export function extractDealershipProfile(html, currentUrl) {
     storeHours: { monday: '', tuesday: '', wednesday: '', thursday: '', friday: '', saturday: '', sunday: '' }
   };
 
-  // 1. PLATFORM DETECTION
   const htmlLower = html.toLowerCase();
   if (htmlLower.includes('powered by dx1') || htmlLower.includes('dx1app.com')) profile.platform = 'DX1';
   else if (htmlLower.includes('dealer spike')) profile.platform = 'Dealer Spike';
   else if (htmlLower.includes('ari network') || htmlLower.includes('arinet')) profile.platform = 'ARI';
   else if (htmlLower.includes('wp-content')) profile.platform = 'WordPress';
 
-  // 2. LOGO EXTRACTION
   $('header img, img.logo, img[id*="logo"], a.navbar-brand img').each((_, el) => {
     if (!profile.logoUrl) {
       const src = $(el).attr('src');
@@ -140,28 +165,6 @@ export function extractDealershipProfile(html, currentUrl) {
     }
   });
 
-  // 3. STRUCTURED DATA PARSING
-  $('script[type="application/ld+json"]').each((_, el) => {
-    try {
-      const data = JSON.parse($(el).html());
-      const items = Array.isArray(data) ? data : [data];
-      for (const item of items) {
-        if (item['@type'] === 'AutoDealer' || item['@type'] === 'LocalBusiness' || item['@type'] === 'AutomotiveBusiness' || item['@type'] === 'MotorcycleDealer') {
-          if (item.name) profile.dealershipName = item.name;
-          if (item.legalName) profile.legalCorporateName = item.legalName;
-          if (item.telephone) profile.telephoneMainLine = item.telephone;
-          if (item.address) {
-            profile.streetAddress = item.address.streetAddress || '';
-            profile.city = item.address.addressLocality || '';
-            profile.state = item.address.addressRegion || '';
-            profile.zipCode = item.address.postalCode || '';
-          }
-        }
-      }
-    } catch (e) {}
-  });
-
-  // 4. DX1 STRUCTURAL FLEX-ROW AND SEPARATED BLOCK HOURS SCANNER
   const dayMap = {
     monday: ['monday', 'mon.', 'mon'],
     tuesday: ['tuesday', 'tue.', 'tue'],
@@ -172,26 +175,32 @@ export function extractDealershipProfile(html, currentUrl) {
     sunday: ['sunday', 'sun.', 'sun']
   };
 
-  // Target rows, table blocks, spans, and descriptive data layouts directly
-  $('tr, li, div, p, font').each((_, el) => {
+  $('tr, li, div, p, font, span, td').each((_, el) => {
     const text = $(el).text().replace(/\s+/g, ' ').trim(); 
     const lowerText = text.toLowerCase();
     
     if (lowerText.length < 80) {
       Object.keys(dayMap).forEach(day => {
         if (!profile.storeHours[day]) {
-          // Look for day matches or variations
-          const containsDay = dayMap[day].some(variant => lowerText.startsWith(variant) || lowerText.includes(variant));
+          const matched = dayMap[day].some(variant => lowerText.startsWith(variant) || lowerText.includes(variant));
           
-          if (containsDay) {
-            // Context capture: If the exact element text is short (just "Mon"), check its parent block wrapper to grab the hours ("Mon Closed")
-            if (/(\d|closed)/.test(lowerText)) {
+          if (matched) {
+            // FIXED: If the element text contains "closed", hardcode it as "Closed" to wipe out random noise
+            if (lowerText.includes('closed')) {
+              profile.storeHours[day] = 'Closed';
+            } 
+            else if (/(\d)/.test(lowerText)) {
               profile.storeHours[day] = text;
-            } else {
+            } 
+            else {
               const parentText = $(el).parent().text().replace(/\s+/g, ' ').trim();
               const lowerParent = parentText.toLowerCase();
-              if (lowerParent.length < 100 && /(\d|closed)/.test(lowerParent)) {
-                profile.storeHours[day] = parentText;
+              if (lowerParent.length < 100) {
+                if (lowerParent.includes('closed')) {
+                  profile.storeHours[day] = 'Closed';
+                } else if (/(\d)/.test(lowerParent)) {
+                  profile.storeHours[day] = parentText;
+                }
               }
             }
           }
@@ -200,7 +209,6 @@ export function extractDealershipProfile(html, currentUrl) {
     }
   });
 
-  // 5. PHONE DIRECTORY AND EXPLICIT FAX REGEX SNIFFER
   $('a[href^="tel:"], p, div, span, tr, td').each((_, el) => {
     const text = $(el).text().trim();
     const phoneMatches = [...text.matchAll(/(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/g)].map(m => m[0]);
@@ -223,9 +231,8 @@ export function extractDealershipProfile(html, currentUrl) {
     if (isFaxContext) {
       if (!profile.telephoneFax) {
         profile.telephoneFax = cleanPhone;
-        console.log(profile.telephoneFax);
       }
-      return; // Halt tracking mix-ups immediately
+      return; 
     }
 
     if (!profile.telephoneMainLine && $(el).is('a[href^="tel:"]')) {
@@ -237,7 +244,6 @@ export function extractDealershipProfile(html, currentUrl) {
     if (combinedContext.includes('parts') && !profile.departmentPhones.parts) profile.departmentPhones.parts = cleanPhone;
   });
 
-  // 6. GOOGLE MAPS DETECTION
   $('iframe[src*="maps.google"], iframe[src*="google.com/maps"]').each((_, el) => {
     const src = $(el).attr('src');
     if (src && !profile.googleBusinessUrl) {
@@ -250,7 +256,6 @@ export function extractDealershipProfile(html, currentUrl) {
     }
   });
 
-  // 7. URL & SOCIAL TARGETING ENGINE
   $('a').each((_, el) => {
     const href = $(el).attr('href');
     const className = $(el).attr('class') || '';
@@ -280,6 +285,7 @@ export function extractDealershipProfile(html, currentUrl) {
 
   return profile;
 }
+
 export function parseAndExtractLinks(html, currentUrl, targetUrl, targetDomain, session, currentDepth) {
   const $ = cheerio.load(html);
   const elements = $('a').toArray();
@@ -287,9 +293,8 @@ export function parseAndExtractLinks(html, currentUrl, targetUrl, targetDomain, 
   for (const element of elements) {
     if (session.isTerminated) break;
 
-    // HARD STOP: Limit exactly at 10000 discovered links
     if (session.discoveredLinks.length >= 10000) {
-      session.queue = []; // Kill the discovery queue immediately
+      session.queue = []; 
       break;
     }
 
@@ -312,9 +317,10 @@ export function parseAndExtractLinks(html, currentUrl, targetUrl, targetDomain, 
         anchorText = innerImg.length ? $(innerImg).attr('alt')?.trim() || '[Image Link]' : '[No Text]';
       }
 
-    if (!session.seenUniqueLinks.has(cleanUrl)) {
+      if (!session.seenUniqueLinks.has(cleanUrl)) {
         session.seenUniqueLinks.add(cleanUrl);
         const { category, subCategory } = getUrlCategoryAndSub(cleanUrl);
+        const autoDetails = extractAutoDetailsFromUrl(cleanUrl);
 
         session.discoveredLinks.push({
           url: cleanUrl,
@@ -324,10 +330,13 @@ export function parseAndExtractLinks(html, currentUrl, targetUrl, targetDomain, 
           subCategory,
           statusCode: 200,
           price: '',
+          year: autoDetails.year || '',
+          brandName: autoDetails.brandName || '',
+          modelName: autoDetails.modelName || '',
+          vehicleType: autoDetails.vehicleType || 'Vehicle',
           verificationStatus: category === 'product' ? 'missing' : 'not_applicable'
         });
 
-        // CRITICAL BOUNDARY GUARD: Only allow structural hubs to enter the crawling queue
         if (category !== 'product' && isCrawlablePath(cleanUrl, currentDepth)) {
           if (!session.visitedUrls.has(cleanUrl) && !session.queue.some(q => q.url === cleanUrl)) {
             session.queue.push({ url: cleanUrl, depth: currentDepth + 1 });
