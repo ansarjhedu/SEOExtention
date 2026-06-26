@@ -9,7 +9,6 @@ import SummaryWidgets from './components/SummaryWidgets';
 import LinkList from './components/LinkList';
 import EmptyState from './components/EmptyState';
 
-// Decoupled Spreadsheet Exporter Utilities
 import { 
   exportCrawlDataToExcel, 
   constructGroupedDataFromFlatList 
@@ -20,36 +19,25 @@ function App() {
   const [filter, setFilter] = useState('all'); 
   const [searchTerm, setSearchTerm] = useState('');
   
-  // Scraper Engine Status Flags
   const [scanning, setScanning] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [copied, setCopied] = useState(false);
   
-  // Tab details tracking states
   const [activeTab, setActiveTab] = useState({ url: '', title: '', id: null });
   const [scannedUrl, setScannedUrl] = useState('');
 
-  // WebSocket Server states
   const [serverOnline, setServerOnline] = useState(false);
   const [crawlMode, setCrawlMode] = useState('quick'); 
   const [crawlProgress, setCrawlProgress] = useState(0);
   const [backendStatus, setBackendStatus] = useState('');
   
-  // Numerical queue counts
   const [pagesCrawled, setPagesCrawled] = useState(0);
   const [queueSize, setQueueSize] = useState(0);
-
-  // Grouped datasets returned from server deep crawls
   const [groupedData, setGroupedData] = useState(null);
   
-  // Corporate and Address Profiles
+  // Holds the live tracking record for real-time audit reporting
   const [dealershipProfile, setDealershipProfile] = useState(null);
 
-  // Single crawl engine state tracking
-  const [workers, setWorkers] = useState([
-    { id: 1, currentUrl: '', status: 'idle', processedCount: 0, queueSize: 0 }
-  ]);
-  
   const socketRef = useRef(null);
   const activeTabRef = useRef(activeTab);
 
@@ -57,37 +45,30 @@ function App() {
     activeTabRef.current = activeTab;
   }, [activeTab]);
 
-  // Establish persistent WebSocket stream
   useEffect(() => {
-   socketRef.current = io('https://seoextention.onrender.com', {
-    reconnection: true,
-    reconnectionDelay: 1000,
-    reconnectionDelayMax: 5000,
-    reconnectionAttempts: Infinity
-  });
-
-  socketRef.current.on('connect', () => {
-    setServerOnline(true);
-    const currentTab = activeTabRef.current;
-    if (currentTab.url && !currentTab.url.startsWith('chrome://')) {
-      socketRef.current.emit('check_active_crawl', { targetUrl: currentTab.url });
-    }
-  });
-
-  socketRef.current.on('disconnect', () => {
-    setServerOnline(false);
-  });
-
-    socketRef.current.on('workers_update', (updatedWorkers) => {
-      setWorkers(updatedWorkers);
+    socketRef.current = io('http://localhost:5000', {
+      reconnection: true,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      reconnectionAttempts: Infinity
     });
 
-    // Unpack grouped payloads and safely flatten Promotions & Parts
+    socketRef.current.on('connect', () => {
+      setServerOnline(true);
+      const currentTab = activeTabRef.current;
+      if (currentTab.url && !currentTab.url.startsWith('chrome://')) {
+        socketRef.current.emit('check_active_crawl', { targetUrl: currentTab.url });
+      }
+    });
+
+    socketRef.current.on('disconnect', () => {
+      setServerOnline(false);
+    });
+
     socketRef.current.on('crawl_data_grouped', (data) => {
       if (!data) return;
       
       const { grouped, dealershipProfile: profile } = data;
-      
       setGroupedData(grouped);
       setDealershipProfile(profile);
 
@@ -102,8 +83,8 @@ function App() {
           ...(grouped?.inventory?.usedInventory?.vehicles || []),
           ...(grouped?.inventory?.generalInventory?.mainLinks || []),
           ...(grouped?.inventory?.generalInventory?.vehicles || []),
-          ...(grouped?.promotions || []), // Flattens Promotions
-          ...(grouped?.parts || []),      // Flattens Parts
+          ...(grouped?.promotions || []), 
+          ...(grouped?.parts || []),      
           ...(grouped?.staticPages || []),
           ...(grouped?.other || [])
         ];
@@ -116,7 +97,6 @@ function App() {
       if (data.isTerminated) {
         setScanning(false);
         setIsPaused(false);
-        setWorkers([{ id: 1, currentUrl: '', status: 'idle', processedCount: 0, queueSize: 0 }]);
       }
     });
 
@@ -132,18 +112,14 @@ function App() {
         setBackendStatus(data.message);
         setScanning(false);
         setIsPaused(false);
-        setWorkers([{ id: 1, currentUrl: '', status: 'idle', processedCount: 0, queueSize: 0 }]);
       }
     });
 
     return () => {
-      if (socketRef.current) {
-        socketRef.current.disconnect();
-      }
+      if (socketRef.current) socketRef.current.disconnect();
     };
   }, []);
 
-  // Tab Tracking & Auto-Rebind
   useEffect(() => {
     async function initActiveTab() {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -158,7 +134,6 @@ function App() {
         if (tab) {
           const tabUrl = tab.url || '';
           setActiveTab({ url: tabUrl, title: tab.title || '', id: tab.id });
-          
           if (socketRef.current && socketRef.current.connected && tabUrl && !tabUrl.startsWith('chrome://')) {
             socketRef.current.emit('check_active_crawl', { targetUrl: tabUrl });
           }
@@ -170,7 +145,6 @@ function App() {
       if (changeInfo.status === 'complete' && tab.active) {
         const tabUrl = tab.url || '';
         setActiveTab({ url: tabUrl, title: tab.title || '', id: tab.id });
-        
         if (socketRef.current && socketRef.current.connected && tabUrl && !tabUrl.startsWith('chrome://')) {
           socketRef.current.emit('check_active_crawl', { targetUrl: tabUrl });
         }
@@ -201,10 +175,6 @@ function App() {
     setScannedUrl(activeTab.url);
     setPagesCrawled(0);
     setQueueSize(1);
-    
-    setWorkers([
-      { id: 1, currentUrl: '', status: 'idle', processedCount: 0, queueSize: 0 }
-    ]);
 
     if (crawlMode === 'quick') {
       try {
@@ -228,17 +198,14 @@ function App() {
                 let category = 'other';
                 let subCategory = '';
                 
-                if (lowerUrl.includes('/products/')) {
-                  category = 'product';
-                } else if (lowerUrl.includes('/collections/')) {
-                  category = 'collection';
-                } else if (lowerUrl.includes('/inventory') || lowerUrl.includes('/search')) {
+                if (lowerUrl.includes('/products/')) category = 'product';
+                else if (lowerUrl.includes('/collections/')) category = 'collection';
+                else if (lowerUrl.includes('/inventory') || lowerUrl.includes('/search')) {
                   category = 'inventory';
                   subCategory = 'general-inventory';
                 } else {
                   category = 'page';
                 }
-                
                 return { ...item, category, subCategory, type: 'internal' };
               });
             setLinks(processedLocal);
@@ -274,7 +241,6 @@ function App() {
   };
 
   const filteredLinks = links.filter(link => {
-    // Isolate Tab routing for Promotions, Parts, and Pages
     const matchesCategory = 
       filter === 'all' || 
       (filter === 'promotions' && link.category === 'page' && link.subCategory === 'promotion-page') ||
@@ -315,13 +281,10 @@ function App() {
 
   const handleExportXLSX = () => {
     if (links.length === 0) return;
-
     let exportPayload = groupedData;
-    
     if (!exportPayload) {
       exportPayload = constructGroupedDataFromFlatList(links);
     }
-
     const cleanDomain = activeTab.url 
       ? activeTab.url.replace(/https?:\/\/(www\.)?/, '').split('/')[0] 
       : 'export';
@@ -354,20 +317,20 @@ function App() {
 
       <main className="flex-1 flex flex-col p-4 gap-4">
         
-        {/* Run Mode Switcher */}
+        {/* Run Mode Switcher - Styled with Corporate Accent */}
         {!isSystemPage && !scanning && !isTabLoading && (
-          <div className="flex rounded-md bg-slate-900 p-0.5 border border-slate-800">
+          <div className="flex rounded-md bg-slate-900 p-0.5 border border-[#1b3a5c]">
             <button
               onClick={() => setCrawlMode('quick')}
               className={`flex-1 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-all cursor-pointer
-                ${crawlMode === 'quick' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
+                ${crawlMode === 'quick' ? 'bg-[#1b3a5c] text-[#f4f5f7]' : 'text-slate-400 hover:text-slate-200'}`}
             >
               Quick On-Page
             </button>
             <button
               onClick={() => setCrawlMode('deep')}
               className={`flex-1 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-all cursor-pointer flex items-center justify-center gap-1
-                ${crawlMode === 'deep' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
+                ${crawlMode === 'deep' ? 'bg-[#1b3a5c] text-[#f4f5f7]' : 'text-slate-400 hover:text-slate-200'}`}
             >
               Deep Server-Side
             </button>
@@ -387,12 +350,12 @@ function App() {
           !scanning ? (
             <button
               onClick={handleScan}
-              className="w-full py-3 px-4 rounded-lg font-semibold text-sm transition-all bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/10 cursor-pointer active:scale-98"
+              className="w-full py-3 px-4 rounded-lg font-bold text-sm transition-all bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/10 cursor-pointer active:scale-98"
             >
               {crawlMode === 'quick' ? 'Scan Current Page' : 'Start Deep Server Crawl'}
             </button>
           ) : (
-            <div className="flex gap-2 bg-slate-900 p-2 border border-slate-800 rounded-lg animate-fade-in">
+            <div className="flex gap-2 bg-slate-900 p-2 border border-[#1b3a5c] rounded-lg animate-fade-in">
               {crawlMode === 'deep' && (
                 <>
                   {isPaused ? (
@@ -423,15 +386,15 @@ function App() {
           )
         )}
 
-        {/* Crawl Progress Widget */}
+        {/* Live Data Audit Dashboard Container */}
         <CrawlProgress 
           scanning={scanning} 
           crawlMode={crawlMode} 
           backendStatus={backendStatus} 
           crawlProgress={crawlProgress} 
-          workers={workers}
           pagesCrawled={pagesCrawled}
           queueSize={queueSize}
+          dealershipProfile={dealershipProfile} // Injects live field updates
         />
 
         {/* Links Display Panel */}
@@ -440,7 +403,6 @@ function App() {
             
             <SummaryWidgets links={links} />
 
-            {/* Local Filters / Categorizer Tabs */}
             <div className="flex flex-col gap-2">
               <input
                 type="text"
@@ -456,8 +418,8 @@ function App() {
                   { key: 'inventory', label: 'Inventory' },
                   { key: 'collection', label: 'Brands' },
                   { key: 'product', label: 'Products' },
-                  { key: 'promotions', label: 'Promotions' }, // Standalone Promotions Tab
-                  { key: 'parts', label: 'Parts' },           // Standalone Parts Tab
+                  { key: 'promotions', label: 'Promotions' }, 
+                  { key: 'parts', label: 'Parts' },           
                   { key: 'page', label: 'Pages' },
                   { key: 'other', label: 'Other' }
                 ].map((tab) => (
@@ -473,7 +435,6 @@ function App() {
               </div>
             </div>
 
-            {/* Action Bar */}
             <div className="flex flex-col gap-2">
               <div className="flex gap-2">
                 <button onClick={handleCopyAll} className="flex-1 py-2 bg-slate-900 hover:bg-slate-850 border border-slate-800 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 text-slate-300 transition-all cursor-pointer active:scale-95">
@@ -499,7 +460,6 @@ function App() {
           </div>
         )}
 
-        {/* Onboarding State */}
         {links.length === 0 && !scanning && (
           <EmptyState isSystemPage={isSystemPage} />
         )}

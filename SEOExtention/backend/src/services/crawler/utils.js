@@ -8,8 +8,17 @@ export const assetExtensions = [
   '.xml', '.json', '.css', '.js'
 ];
 
-const KNOWN_BRANDS_SET = new Set(['yamaha', 'kawasaki', 'cfmoto', 'ktm', 'honda', 'suzuki', 'polaris', 'can-am']);
-const CATEGORY_KEYWORDS = new Set(['atvs', 'atv', 'motorcycles', 'motorcycle', 'utility-vehicles', 'utility-vehicle', 'watercraft', 'scooters', 'scooter']);
+// Expanded to include custom multi-line platform brands like Spyder, Atlas Golf, and Marine/PWC identifiers
+const KNOWN_BRANDS_SET = new Set([
+  'yamaha', 'kawasaki', 'cfmoto', 'ktm', 'honda', 'suzuki', 'polaris', 'can-am', 
+  'spyder', 'atlas', 'atlas golf', 'seadoo', 'sea-doo'
+]);
+
+// Expanded with clean category definitions reflecting diverse powersports / marine combinations
+const CATEGORY_KEYWORDS = new Set([
+  'atvs', 'atv', 'motorcycles', 'motorcycle', 'utility-vehicles', 'utility-vehicle', 
+  'watercraft', 'scooters', 'scooter', 'pwc', 'golf-carts', 'golf-cart', 'side-by-sides', 'sxs'
+]);
 
 export const getCleanDomain = (urlStr) => {
   try {
@@ -39,8 +48,7 @@ export function canonicalizeUrl(urlStr) {
     const url = new URL(urlStr);
     url.hash = '';
 
-    // 嚴格白名單模式：僅保留分頁、產品 ID、庫存或車身號碼所需的必要參數。
-    // 自動刪除 ModuleGuid、排序（sort）、方向（direction）及各種篩選參數，以防爬蟲陷入無限重覆路徑的陷阱。
+    // Strict parameter whitelist prevents crawler trap feedback loops on search pages
     const whitelistParams = new Set(['page', 'p', 'pg', 'offset', 'id', 'vehicleid', 'stock', 'vin']);
     const params = [...url.searchParams.entries()];
 
@@ -78,6 +86,7 @@ export function extractAutoDetailsFromUrl(urlStr) {
 
     let yearIdx = -1;
     for (let i = 0; i < tokens.length; i++) {
+      // Dynamic verification pattern targeting inventory standard date formats
       if (/^(19[8-9]\d|20[0-2]\d)$/.test(tokens[i])) {
         yearIdx = i;
         details.year = tokens[i];
@@ -132,6 +141,7 @@ export function getUrlCategoryAndSub(urlStr) {
     lowerUrl.includes('/accessories') ||
     lowerUrl.includes('/parts-department') ||
     lowerUrl.includes('/contact') ||
+    lowerUrl.includes('/locations') ||
     lowerUrl.includes('/about');
 
   // --- 2. INCLUSION HEURISTICS (Must match at least one to be a product) ---
@@ -156,9 +166,10 @@ export function getUrlCategoryAndSub(urlStr) {
 
   if (isVdp) {
     let condition = 'general-product';
+    // Enhanced tracking pattern captures DX1 'pre-owned' paths cleanly
     if (lowerUrl.includes('new') || lowerUrl.includes('newinventory')) {
       condition = 'new-product';
-    } else if (lowerUrl.includes('used') || lowerUrl.includes('pre-owned') || lowerUrl.includes('usedinventory')) {
+    } else if (lowerUrl.includes('used') || lowerUrl.includes('pre-owned') || lowerUrl.includes('usedinventory') || lowerUrl.includes('preowned')) {
       condition = 'used-product';
     }
     return { category: 'product', subCategory: condition };
@@ -169,7 +180,7 @@ export function getUrlCategoryAndSub(urlStr) {
     return { category: 'page', subCategory: 'parts-page' };
   }
 
-  if (lowerUrl.includes('/promotions') || lowerUrl.includes('/oem-promotions') || lowerUrl.includes('/promotion') || lowerUrl.includes('/promo')) {
+  if (lowerUrl.includes('/promotions') || lowerUrl.includes('/oem-promotions') || lowerUrl.includes('/promotion') || lowerUrl.includes('/promo') || lowerUrl.includes('in-stock-deals')) {
     return { category: 'page', subCategory: 'promotion-page' };
   }
 
@@ -190,14 +201,15 @@ export function getUrlCategoryAndSub(urlStr) {
   if (lowerUrl.includes('/new-vehicles') || lowerUrl.includes('/new-inventory')) {
     return { category: 'inventory', subCategory: 'new-inventory' };
   }
-  if (lowerUrl.includes('/used-vehicles') || lowerUrl.includes('/used-inventory')) {
+  // Added 'pre-owned' check to hub links
+  if (lowerUrl.includes('/used-vehicles') || lowerUrl.includes('/used-inventory') || lowerUrl.includes('pre-owned')) {
     return { category: 'inventory', subCategory: 'used-inventory' };
   }
   if (lowerUrl.includes('/inventory') || lowerUrl.includes('/search') || lowerUrl.includes('searchinventory')) {
     return { category: 'inventory', subCategory: 'general-inventory' };
   }
 
-  const staticPagePaths = ['/about', '/contact', '/faq', '/privacy', '/terms'];
+  const staticPagePaths = ['/about', '/about-us', '/contact', '/locations', '/faq', '/privacy', '/terms'];
   try {
     const pathname = url.pathname.toLowerCase();
     if (pathname === '/' || staticPagePaths.some(path => pathname === path || pathname === path + '/')) {

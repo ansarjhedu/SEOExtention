@@ -1,29 +1,6 @@
-// models/Scan.js
+//els/Scan.js
 
 import mongoose from 'mongoose';
-
-const LinkSchema = new mongoose.Schema({
-  url: { type: String, required: true },
-  text: { type: String, default: '' },
-  type: { type: String, enum: ['internal', 'external'], required: true },
-  category: { 
-    type: String, 
-    enum: ['inventory', 'collection', 'product', 'page', 'other'], 
-    default: 'other' 
-  },
-  subCategory: { type: String, default: '' },
-  vehicleType: { type: String, default: '' },
-  brandName: { type: String, default: '' },
-  modelName: { type: String, default: '' },
-  year: { type: String, default: '' },
-  price: { type: String, default: '' },
-  verificationStatus: { 
-    type: String, 
-    enum: ['verified', 'missing', 'not_applicable'], 
-    default: 'not_applicable' 
-  },
-  statusCode: { type: Number, default: 200 }
-});
 
 const ScanSchema = new mongoose.Schema({
   projectId: {
@@ -32,7 +9,6 @@ const ScanSchema = new mongoose.Schema({
     required: false,
   },
   targetUrl: { type: String, required: true },
-  links: [LinkSchema],
   totalFound: { type: Number, default: 0 },
   status: {
     type: String,
