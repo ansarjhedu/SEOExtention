@@ -20,7 +20,8 @@
     "playwright": "^1.61.1",
     "playwright-extra": "^4.3.6",
     "puppeteer-extra-plugin-stealth": "^2.11.2",
-    "socket.io": "^4.7.4"
+    "socket.io": "^4.7.4",
+    "socks-proxy-agent": "^10.1.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"

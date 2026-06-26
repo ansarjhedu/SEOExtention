@@ -131,7 +131,6 @@ export const runDeepCrawl = async (targetUrl, socket) => {
         minTime: 250,
       }),
     };
-
     activeCrawls.set(domain, session);
 
     const emitEngineUpdate = (qSize) => {
