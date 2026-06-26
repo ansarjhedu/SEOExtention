@@ -187,9 +187,15 @@ export function extractDealershipProfile(html, currentUrl) {
     } catch (e) {}
   });
 
-  // RESTORED: Clean string day map structure that works flawlessly with crawlerState loops
- // 4. DX1 STRUCTURAL FLEX-ROW AND SEPARATED BLOCK HOURS SCANNER
- const dayMap = {
+  if (!profile.dealershipName) {
+    const titleText = $('title').text().split('|')[0].split('-')[0].trim();
+    if (titleText && titleText.length < 60 && !['home', 'welcome', 'index'].includes(titleText.toLowerCase())) {
+      profile.dealershipName = titleText;
+    }
+  }
+
+  // 4. FIX: RIGID STRING PATTERN LINE-BY-LINE HOURS PARSER
+  const dayMap = {
     monday: ['monday', 'mon.', 'mon'],
     tuesday: ['tuesday', 'tue.', 'tue'],
     wednesday: ['wednesday', 'wed.', 'wed'],
@@ -199,66 +205,71 @@ export function extractDealershipProfile(html, currentUrl) {
     sunday: ['sunday', 'sun.', 'sun']
   };
 
-  // Consolidated, more robust hours extractor (fixes Monday misses)
   const escapeRegExp = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-  $('tr, li, div, p, font, span, td').each((_, el) => {
-    const raw = $(el).text().replace(/\s+/g, ' ').trim();
-    const lower = raw.toLowerCase();
-    if (!lower || lower.length > 200) return;
+  // Locate targeted containers to limit broad wrapper overlap
+  $('footer, .footer, #footer, [class*="footer"], [class*="hours"], .store-hours, table, tr').each((_, tableEl) => {
+    // Split block strings strictly into single lines to separate "Mon Closed" from "Tue 9:00"
+    const lines = $(tableEl).text().split('\n');
 
-    Object.keys(dayMap).forEach(day => {
-      if (profile.storeHours[day]) return;
+    for (let line of lines) {
+      const cleanLine = line.replace(/\s+/g, ' ').trim();
+      const lowerLine = cleanLine.toLowerCase();
+      if (!lowerLine || lowerLine.length > 120) continue;
 
-      for (const variant of dayMap[day]) {
-        // build a tolerant whole-word-ish regex that matches "mon", "mon.", "mon:" etc.
-        const vClean = escapeRegExp(variant.replace(/\./g, ''));
-        const dayRe = new RegExp(`(^|\\s|[:\\-])${vClean}(\\b|[:\\-\\.]|\\s)`, 'i');
+      Object.keys(dayMap).forEach(day => {
+        if (profile.storeHours[day]) return; // Day already filled, lock immediately
 
-        if (!dayRe.test(lower)) continue;
+        for (const variant of dayMap[day]) {
+          const vClean = escapeRegExp(variant.replace(/\./g, ''));
+          const dayRe = new RegExp(`(^|\\s|[:\\-])${vClean}(\\b|[:\\-\\.]|\\s)`, 'i');
 
-        // Prefer explicit "closed" indicators first
-        if (/\bclosed?\b/i.test(lower)) {
-          profile.storeHours[day] = 'Closed';
-          break;
-        }
+          if (!dayRe.test(lowerLine)) continue;
 
-        // If this element contains digits, assume it's the hours
-        if (/\d/.test(lower)) {
-          profile.storeHours[day] = raw;
-          break;
-        }
-
-        // Look in parent text
-        const parentText = $(el).parent().text().replace(/\s+/g, ' ').trim();
-        const lowerParent = parentText.toLowerCase();
-        if (lowerParent && lowerParent.length < 300) {
-          if (/\bclosed?\b/i.test(lowerParent)) {
+          // Scope-restricted test: Does this *specific* line contain a closed tag?
+          if (/\bclosed?\b/i.test(lowerLine)) {
             profile.storeHours[day] = 'Closed';
-            break;
+            return;
           }
-          if (/\d/.test(lowerParent)) {
-            profile.storeHours[day] = parentText;
-            break;
-          }
-        }
 
-        // Look in next sibling (common layout: "Mon" then sibling contains hours)
-        const nextText = $(el).next().text().replace(/\s+/g, ' ').trim();
-        const lowerNext = nextText.toLowerCase();
-        if (lowerNext && lowerNext.length < 300) {
-          if (/\bclosed?\b/i.test(lowerNext)) {
-            profile.storeHours[day] = 'Closed';
-            break;
-          }
-          if (/\d/.test(lowerNext)) {
-            profile.storeHours[day] = nextText;
-            break;
+          // Scope-restricted test: Does this *specific* line contain numeric hours formatting?
+          if (/\d/.test(lowerLine)) {
+            profile.storeHours[day] = cleanLine;
+            return;
           }
         }
-      }
-    });
+      });
+    }
   });
+
+  // 5. HARD FALLBACK: Target localized inline table cell layers if line splits missed table wrappers
+  if (!profile.storeHours.monday || !profile.storeHours.tuesday) {
+    $('tr, li').each((_, el) => {
+      const rawText = $(el).text().replace(/\s+/g, ' ').trim();
+      const lowerText = rawText.toLowerCase();
+      if (!lowerText || lowerText.length > 80) return;
+
+      Object.keys(dayMap).forEach(day => {
+        if (profile.storeHours[day]) return;
+
+        for (const variant of dayMap[day]) {
+          const vClean = escapeRegExp(variant.replace(/\./g, ''));
+          const dayRe = new RegExp(`(^|\\s|[:\\-])${vClean}(\\b|[:\\-\\.]|\\s)`, 'i');
+
+          if (!dayRe.test(lowerText)) continue;
+
+          if (/\bclosed?\b/i.test(lowerText)) {
+            profile.storeHours[day] = 'Closed';
+            break;
+          }
+          if (/\d/.test(lowerText)) {
+            profile.storeHours[day] = rawText;
+            break;
+          }
+        }
+      });
+    });
+  }
 
   // Telephone & Fax Directory Scrapers
   $('a[href^="tel:"], p, div, span, tr, td').each((_, el) => {
