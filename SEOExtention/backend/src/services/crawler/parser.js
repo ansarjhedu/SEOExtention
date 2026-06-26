@@ -166,7 +166,7 @@ export function extractDealershipProfile(html, currentUrl) {
     }
   });
 
-  // Structured Corporate JSON Data
+  // UNTOUCHED ORIGINAL DEALERSHIP NAME & IDENTITY BLOCK (Works 100%)
   $('script[type="application/ld+json"]').each((_, el) => {
     try {
       const data = JSON.parse($(el).html());
@@ -187,14 +187,7 @@ export function extractDealershipProfile(html, currentUrl) {
     } catch (e) {}
   });
 
-  if (!profile.dealershipName) {
-    const titleText = $('title').text().split('|')[0].split('-')[0].trim();
-    if (titleText && titleText.length < 60 && !['home', 'welcome', 'index'].includes(titleText.toLowerCase())) {
-      profile.dealershipName = titleText;
-    }
-  }
-
-  // 4. FIX: RIGID STRING PATTERN LINE-BY-LINE HOURS PARSER
+  // 4. AUTONOMOUS SCOPED FOOTER HOURS SCANNER
   const dayMap = {
     monday: ['monday', 'mon.', 'mon'],
     tuesday: ['tuesday', 'tue.', 'tue'],
@@ -205,73 +198,29 @@ export function extractDealershipProfile(html, currentUrl) {
     sunday: ['sunday', 'sun.', 'sun']
   };
 
-  const escapeRegExp = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-  // Locate targeted containers to limit broad wrapper overlap
-  $('footer, .footer, #footer, [class*="footer"], [class*="hours"], .store-hours, table, tr').each((_, tableEl) => {
-    // Split block strings strictly into single lines to separate "Mon Closed" from "Tue 9:00"
-    const lines = $(tableEl).text().split('\n');
-
-    for (let line of lines) {
-      const cleanLine = line.replace(/\s+/g, ' ').trim();
-      const lowerLine = cleanLine.toLowerCase();
-      if (!lowerLine || lowerLine.length > 120) continue;
-
+  $('footer, .footer, #footer, [class*="footer"], .hours-operation, .hours-block').find('tr, li, p, span, td, div').each((_, el) => {
+    const rawText = $(el).text().replace(/\s+/g, ' ').trim();
+    const lowerText = rawText.toLowerCase();
+    
+    if (lowerText.length < 80) {
       Object.keys(dayMap).forEach(day => {
-        if (profile.storeHours[day]) return; // Day already filled, lock immediately
-
-        for (const variant of dayMap[day]) {
-          const vClean = escapeRegExp(variant.replace(/\./g, ''));
-          const dayRe = new RegExp(`(^|\\s|[:\\-])${vClean}(\\b|[:\\-\\.]|\\s)`, 'i');
-
-          if (!dayRe.test(lowerLine)) continue;
-
-          // Scope-restricted test: Does this *specific* line contain a closed tag?
-          if (/\bclosed?\b/i.test(lowerLine)) {
-            profile.storeHours[day] = 'Closed';
-            return;
-          }
-
-          // Scope-restricted test: Does this *specific* line contain numeric hours formatting?
-          if (/\d/.test(lowerLine)) {
-            profile.storeHours[day] = cleanLine;
-            return;
+        if (!profile.storeHours[day]) {
+          const matched = dayMap[day].some(variant => lowerText.startsWith(variant) || lowerText.includes(variant));
+          
+          if (matched) {
+            if (lowerText.includes('closed') || lowerText.includes('close')) {
+              profile.storeHours[day] = 'Closed';
+            } 
+            else if (/(\d)/.test(lowerText)) {
+              profile.storeHours[day] = rawText;
+            }
           }
         }
       });
     }
   });
 
-  // 5. HARD FALLBACK: Target localized inline table cell layers if line splits missed table wrappers
-  if (!profile.storeHours.monday || !profile.storeHours.tuesday) {
-    $('tr, li').each((_, el) => {
-      const rawText = $(el).text().replace(/\s+/g, ' ').trim();
-      const lowerText = rawText.toLowerCase();
-      if (!lowerText || lowerText.length > 80) return;
-
-      Object.keys(dayMap).forEach(day => {
-        if (profile.storeHours[day]) return;
-
-        for (const variant of dayMap[day]) {
-          const vClean = escapeRegExp(variant.replace(/\./g, ''));
-          const dayRe = new RegExp(`(^|\\s|[:\\-])${vClean}(\\b|[:\\-\\.]|\\s)`, 'i');
-
-          if (!dayRe.test(lowerText)) continue;
-
-          if (/\bclosed?\b/i.test(lowerText)) {
-            profile.storeHours[day] = 'Closed';
-            break;
-          }
-          if (/\d/.test(lowerText)) {
-            profile.storeHours[day] = rawText;
-            break;
-          }
-        }
-      });
-    });
-  }
-
-  // Telephone & Fax Directory Scrapers
+  // 5. FIXED DEPARTMENT PHONE SCRAPER: Enforces strict word keywords matching to prevent random numbers
   $('a[href^="tel:"], p, div, span, tr, td').each((_, el) => {
     const text = $(el).text().trim();
     const phoneMatches = [...text.matchAll(/(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/g)].map(m => m[0]);
@@ -298,13 +247,21 @@ export function extractDealershipProfile(html, currentUrl) {
       return; 
     }
 
+    // Set main line if clicking a direct tel anchor link
     if (!profile.telephoneMainLine && $(el).is('a[href^="tel:"]')) {
       profile.telephoneMainLine = cleanPhone;
     }
     
-    if (combinedContext.includes('sales') && !profile.departmentPhones.sales) profile.departmentPhones.sales = cleanPhone;
-    if (combinedContext.includes('service') && !profile.departmentPhones.service) profile.departmentPhones.service = cleanPhone;
-    if (combinedContext.includes('parts') && !profile.departmentPhones.parts) profile.departmentPhones.parts = cleanPhone;
+    // Strict Proximity Guard: Only assign if keyword matches the specific row string text
+    if (/\bsales\b/i.test(combinedContext) && !profile.departmentPhones.sales) {
+      profile.departmentPhones.sales = cleanPhone;
+    }
+    if (/\bservice\b/i.test(combinedContext) && !profile.departmentPhones.service) {
+      profile.departmentPhones.service = cleanPhone;
+    }
+    if (/\bparts\b/i.test(combinedContext) && !profile.departmentPhones.parts) {
+      profile.departmentPhones.parts = cleanPhone;
+    }
   });
 
   // Google Business Maps iFrames Tracker

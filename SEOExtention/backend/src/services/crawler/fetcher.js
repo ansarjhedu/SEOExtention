@@ -1,51 +1,82 @@
 // services/crawler/fetcher.js
 import axios from 'axios';
 
-// A rotating pool of real browser fingerprints to stop Cloudflare from spotting a pattern
 const USER_AGENTS = [
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0',
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 Edg/122.0.0.0'
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0'
 ];
 
-const REFERERS = [
-  'https://www.google.com/',
-  'https://www.bing.com/',
-  'https://www.yahoo.com/',
-  'https://duckduckgo.com/'
-];
+// In-memory cache for free public proxies to prevent rescraping on every single request
+let cachedPublicProxies = [];
+
+async function refreshFreeProxies() {
+  try {
+    // Fetch a fresh list of free public proxies anonymously
+    const res = await axios.get('https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=2000&country=US&ssl=all&anonymity=all', { timeout: 5000 });
+    if (res.data && typeof res.data === 'string') {
+      cachedPublicProxies = res.data.split('\r\n').filter(p => p.includes(':'));
+      console.log(`[Proxy Engine] Successfully loaded ${cachedPublicProxies.length} free public fallback proxies.`);
+    }
+  } catch (e) {
+    console.error('[Proxy Engine] Failed to harvest free proxies:', e.message);
+  }
+}
 
 export async function fetchPage(url, session, originUrl) {
-  // 1. DYNAMIC JITTER BACKOFF: Inject a randomized artificial human delay (300ms - 800ms)
-  // This breaks the robotic pattern that triggers firewall rate limits on cloud servers.
-  const jitterDelay = Math.floor(Math.random() * 500) + 300;
-  await new Promise(resolve => setTimeout(resolve, jitterDelay));
-
-  // 2. Rotate a fresh User Agent and organic Referer per request
   const chosenUA = USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
-  const chosenReferer = REFERERS[Math.floor(Math.random() * REFERERS.length)];
-
-  const config = {
+  
+  const baseConfig = {
     method: 'get',
     url: url,
     headers: {
       'User-Agent': chosenUA,
-      // Hardcode common secure headers to convince firewalls this is a real browser window
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
       'Accept-Language': 'en-US,en;q=0.9',
-      'Accept-Encoding': 'gzip, deflate, br',
-      'Referer': url === originUrl ? chosenReferer : originUrl, // Use a search engine fallback if it's the homepage
+      'Referer': originUrl || 'https://www.google.com/',
       'Connection': 'keep-alive',
-      'Upgrade-Insecure-Requests': '1',
-      'Sec-Fetch-Dest': 'document',
-      'Sec-Fetch-Mode': 'navigate',
-      'Sec-Fetch-Site': 'same-origin',
-      'Sec-Fetch-User': '?1',
-      'Cache-Control': 'max-age=0'
+      'Upgrade-Insecure-Requests': '1'
     },
-    timeout: 10000 // 10 second network limit cap
+    timeout: 7000
   };
 
-  return axios(config);
+  try {
+    // 1. Attempt a standard clean direct fetch first
+    return await axios(baseConfig);
+  } catch (error) {
+    // 2. If blocked by a 403 Forbidden firewall, trigger the free proxy recovery fallback
+    if (error.response && error.response.status === 403) {
+      console.warn(`[Firewall] 403 Blocked on ${url}. Activating free proxy bypass...`);
+      
+      if (cachedPublicProxies.length === 0) {
+        await refreshFreeProxies();
+      }
+
+      // Try up to 5 different free proxies from the pool before throwing an error
+      for (let i = 0; i < Math.min(5, cachedPublicProxies.length); i++) {
+        const proxyStr = cachedPublicProxies[Math.floor(Math.random() * cachedPublicProxies.length)];
+        const [host, port] = proxyStr.split(':');
+        
+        console.log(`[Proxy Loop] Rerouting request via free node: http://${host}:${port}`);
+        
+        try {
+          const proxyConfig = {
+            ...baseConfig,
+            timeout: 9000, // Extra headroom for public proxy latency
+            proxy: {
+              protocol: 'http',
+              host: host,
+              port: parseInt(port, 10)
+            }
+          };
+          return await axios(proxyConfig);
+        } catch (proxyError) {
+          console.log(`[Proxy Loop] Node http://${host}:${port} failed, trying next...`);
+        }
+      }
+    }
+    
+    // If all fail or error wasn't a 403, pass the original exception up
+    throw error;
+  }
 }
