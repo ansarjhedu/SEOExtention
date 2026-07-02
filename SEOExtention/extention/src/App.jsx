@@ -47,7 +47,7 @@ function App() {
 
   useEffect(() => {
     //  socketRef.current = io('http://localhost:5000', {
-    socketRef.current = io('https://seoextention.onrender.com', {
+    socketRef.current = io('https://maxxopp.onrender.com', {
 
       reconnection: true,
       reconnectionDelay: 1000,
