@@ -49,6 +49,7 @@ export function groupDiscoveredLinks(links) {
     promotions: [],      
     parts: [],           
     staticPages: [],
+    blogs: [],           // <-- ADDED: Dedicated array for blog & news links
     other: []
   };
 
@@ -68,9 +69,12 @@ export function groupDiscoveredLinks(links) {
       else if (link.subCategory === 'used-product') grouped.inventory.usedInventory.vehicles.push(link);
       else grouped.inventory.generalInventory.vehicles.push(link);
     } 
+    else if (link.category === 'blog') {
+      grouped.blogs.push(link); // <-- ADDED: Routes blog category links here
+    }
     else if (link.category === 'page') {
       if (link.subCategory === 'promotion-page') grouped.promotions.push(link);
-      else if (link.subCategory === 'parts-page') grouped.parts.push(link);
+      else if (link.subCategory === 'parts-page' || link.subCategory === 'service-page') grouped.parts.push(link);
       else grouped.staticPages.push(link);
     } 
     else {
@@ -80,7 +84,6 @@ export function groupDiscoveredLinks(links) {
 
   return grouped;
 }
-
 export function extractPageMetadata(html) {
   const $ = cheerio.load(html);
   let extractedPrice = '';

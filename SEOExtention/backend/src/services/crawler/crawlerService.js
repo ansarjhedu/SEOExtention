@@ -4,16 +4,15 @@ import Bottleneck from "bottleneck";
 import { activeCrawls } from "./state.js";
 import { getCleanDomain, canonicalizeUrl } from "./utils.js";
 import { fetchPage } from "./fetcher.js";
-import { mapCrawlerDataForSheets } from "../exporter/dataMapper.js";
-import { createCrawlerReportWorkbook } from "../exporter/googleSheets.js";
-import {
-  parseAndExtractLinks,
-  extractPageMetadata,
-  groupDiscoveredLinks,
-  extractDealershipProfile,
-} from "./parser.js";
 import { extractLinksFromSitemap } from "./sitemapExtractor.js";
 import { sniffPlatformAPI } from "./platformSniffer.js";
+
+// Import our routing engines
+import * as defaultParser from "./parser.js";
+import * as dxEngine from "./platforms/dxEngine.js";
+
+// Import the grouper specifically from parser as it handles array formatting globally
+import { groupDiscoveredLinks } from "./parser.js"; 
 
 export { activeCrawls };
 
@@ -103,9 +102,19 @@ export const runDeepCrawl = async (targetUrl, socket) => {
           blog: "",
           events: "",
           testimonials: "",
+          googleReviews: "", // <-- ADDED: Catches G.page and Google Maps review links
         }, 
         departmentPhones: { sales: "", service: "", parts: "" }, 
         storeHours: {
+          monday: "",
+          tuesday: "",
+          wednesday: "",
+          thursday: "",
+          friday: "",
+          saturday: "",
+          sunday: "",
+        },
+        serviceHours: {      // <-- ADDED: Separated service & parts department hours
           monday: "",
           tuesday: "",
           wednesday: "",
@@ -125,7 +134,6 @@ export const runDeepCrawl = async (targetUrl, socket) => {
         financeDetails: { lendingPartners: [], programsOffered: [] },
         serviceDetails: { tiers: [], claims: [] },
       },
-      // TUNING 1: Raised concurrency safely to 3 threads with a lower minimum delay window
       limiter: new Bottleneck({
         maxConcurrent: 3,
         minTime: 250,
@@ -190,6 +198,22 @@ export const runDeepCrawl = async (targetUrl, socket) => {
 
     const sniffResult = await sniffPlatformAPI(rootUrl.origin);
 
+    // DYNAMIC ENGINE ROUTING LOGIC
+    let activeEngine;
+    if (sniffResult.platform === 'dx1') {
+      console.log(`[Router] Routing to dxEngine`);
+      activeEngine = dxEngine;
+    } else if (['ari', 'dealer_spike', 'interact_rv'].includes(sniffResult.platform)) {
+      console.log(`[Router] ${sniffResult.platform.toUpperCase()} detected. Routing to defaultParser.`);
+      activeEngine = defaultParser;
+    } else {
+      console.log(`[Router] Routing to defaultParser`);
+      activeEngine = defaultParser;
+    }
+
+    // Set the detected platform immediately in the profile
+    session.dealershipProfile.platform = sniffResult.platform === 'unknown' ? 'Unknown' : sniffResult.platform.toUpperCase();
+
     if (sniffResult.platform !== "unknown" && sniffResult.rawData) {
       session.socket.emit("crawl_status", {
         status: "processing",
@@ -201,6 +225,49 @@ export const runDeepCrawl = async (targetUrl, socket) => {
       session.progress = 100;
     }
 
+ // =================================================================
+    // SITEMAP SEEDING LAYER (Smart Routing for Maximum Speed)
+    // =================================================================
+    if (!session.isTerminated) {
+      try {
+        session.socket.emit("crawl_status", {
+          status: "processing",
+          message: "Extracting site blueprint from sitemaps...",
+          progress: 8,
+        });
+
+        const sitemapLinks = await extractLinksFromSitemap(targetUrl, session);
+        console.log(`[Crawler] Categorizing and seeding ${sitemapLinks.length} items from sitemap...`);
+        
+        for (const url of sitemapLinks) {
+          if (!session.seenUniqueLinks.has(url)) {
+            session.seenUniqueLinks.add(url);
+            
+            // Categorize the URL instantly without fetching the page
+            const { category, subCategory } = activeEngine.categorizeLink(url);
+            // Seed it into the discovered database immediately
+            session.discoveredLinks.push({
+              url: url,
+              text: '[Sitemap Link]',
+              type: 'internal',
+              category: category,
+              subCategory: subCategory,
+              statusCode: 200,
+              price: '',
+              verificationStatus: (category === 'product' || category === 'Vehicle Products' || category === 'Inventory Collection') ? 'missing' : 'not_applicable'
+            });
+
+            // CRITICAL SPEED FIX: Do not put vehicle products into Phase 1!
+            // Only push structural/category pages to Phase 1 discovery. Vehicles go straight to Phase 2.
+            if (category !== 'product' && category !== 'Vehicle Products') {
+              session.queue.push({ url, depth: 1 });
+            }
+          }
+        }
+      } catch (sitemapError) {
+        console.error(`[Crawler] Sitemap seeding bypassed, relying purely on root traversal: ${sitemapError.message}`);
+      }
+    }
     // =================================================================
     // PHASE 1: SITE DISCOVERY LOOP
     // =================================================================
@@ -227,9 +294,11 @@ export const runDeepCrawl = async (targetUrl, socket) => {
 
       try {
         // Wrapped with bottleneck scheduler context to obey throttling parameters smoothly
-     const response = await session.limiter.schedule(() => fetchPage(currentTarget, session, rootUrl.origin));
+        const response = await session.limiter.schedule(() => fetchPage(currentTarget, session, rootUrl.origin));
         if (response && response.data) {
-          const crawledProfile = extractDealershipProfile(response.data, currentTarget);
+          
+          // Use activeEngine dynamically for Dealership Profile extraction
+          const crawledProfile = activeEngine.extractDealershipProfile(response.data, currentTarget);
 
           // The original, working property loop
           Object.keys(crawledProfile).forEach((key) => {
@@ -246,12 +315,30 @@ export const runDeepCrawl = async (targetUrl, socket) => {
             }
           });
 
-          parseAndExtractLinks(response.data, currentTarget, targetUrl, domain, session, currentDepth);
+          // Use activeEngine dynamically for Link parsing
+          activeEngine.parseAndExtractLinks(response.data, currentTarget, targetUrl, domain, session, currentDepth);
+          
           calculateLiveInventoryMetrics(session);
           emitGroupedDataUpdate(session);
         }
       } catch (crawlErr) {
-        console.error(`Skipping network path error on URL (${currentTarget}): ${crawlErr.message}`);
+
+      if (crawlErr.message.includes('404') || crawlErr.status === 404) {
+          const matched = session.discoveredLinks.find(l => l.url === currentTarget);
+          if (matched) {
+            matched.category = '404';
+            matched.subCategory = 'error';
+            matched.statusCode = 404;
+            matched.text = '[Dead Link - 404]';
+          } else {
+            session.discoveredLinks.push({
+              url: currentTarget, text: '[Dead Link - 404]', type: 'internal', 
+              category: '404', subCategory: 'error', statusCode: 404, price: ''
+            });
+          }
+        } else {
+          console.error(`Skipping network path error on URL (${currentTarget}): ${crawlErr.message}`);
+        }
       }
 
       const totalKnownPages = session.visitedUrls.size + session.queue.length;
@@ -306,11 +393,24 @@ export const runDeepCrawl = async (targetUrl, socket) => {
         try {
           const response = await fetchPage(url, session, rootUrl.origin);
           if (response && response.data) {
-            const meta = extractPageMetadata(response.data);
-            const matchedRecord = session.discoveredLinks.find((link) => link.url === url);
+            
+            // Use activeEngine dynamically for metadata extraction
+            const meta = activeEngine.extractPageMetadata(response.data);
+            
+          const matchedRecord = session.discoveredLinks.find((link) => link.url === url);
             if (matchedRecord) {
+              // 1. Assign the Price
               matchedRecord.price = meta.price || "";
-              matchedRecord.verificationStatus = meta.price && matchedRecord.modelName ? "verified" : "missing";
+              
+              // 2. CRITICAL FIX: If the URL parser missed the Year/Brand/Model in Phase 1, 
+              // inject them now that we found them in the HTML DOM during Phase 2!
+              if (!matchedRecord.year && meta.year) matchedRecord.year = meta.year;
+              if (!matchedRecord.brandName && meta.brandName) matchedRecord.brandName = meta.brandName;
+              if (!matchedRecord.modelName && meta.modelName) matchedRecord.modelName = meta.modelName;
+              if (matchedRecord.vehicleType === 'Vehicle' && meta.vehicleType) matchedRecord.vehicleType = meta.vehicleType;
+
+              // 3. Update Verification Status
+              matchedRecord.verificationStatus = matchedRecord.price && matchedRecord.modelName ? "verified" : "missing";
             }
             calculateLiveInventoryMetrics(session);
             emitGroupedDataUpdate(session);
@@ -334,7 +434,7 @@ export const runDeepCrawl = async (targetUrl, socket) => {
         session.currentUrl = "";
       };
 
-      // TUNING 2: Splitting queue blocks into chunks of 3 parallel execution channels using a thread pool proxy
+      // TUNING 2: Splitting queue blocks into chunks of 3 parallel execution channels
       const CONCURRENT_WORKERS_COUNT = 3;
       
       while (session.extractionQueue.length > 0 && !session.isTerminated) {
@@ -362,27 +462,7 @@ export const runDeepCrawl = async (targetUrl, socket) => {
       }
     }
 
-    // =================================================================
-    // EXPORT TO GOOGLE SHEETS
-    // =================================================================
-    session.socket.emit("crawl_status", {
-      status: "processing",
-      message: "Formatting data and exporting to Google Sheets...",
-      progress: 95,
-      linksFoundCount: session.discoveredLinks.length,
-      pagesCrawled: session.pagesCrawledCount + session.extractedCount,
-      queueSize: 0,
-    });
-
-    try {
-      const mappedData = mapCrawlerDataForSheets(session);
-      const spreadsheetUrl = await createCrawlerReportWorkbook(domain, mappedData);
-      console.log(`Export Complete! Report available at: ${spreadsheetUrl}`);
-      session.socket.emit("report_ready", { url: spreadsheetUrl });
-    } catch (sheetError) {
-      console.error(`Google Sheets Export Failed: ${sheetError.message}`);
-    }
-
+    
     calculateLiveInventoryMetrics(session);
     emitGroupedDataUpdate(session);
 

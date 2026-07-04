@@ -1,56 +1,91 @@
 // services/crawler/sitemapExtractor.js
 
-import axios from 'axios';
 import * as cheerio from 'cheerio';
-import https from 'node:https';
+import { fetchPage } from './fetcher.js';
+import { canonicalizeUrl, getCleanDomain } from './utils.js';
 
 /**
- * Attempts to fetch and parse a dealership's XML sitemap.
+ * Extracts and categorizes all crawlable internal links from a target website sitemap structure.
+ * Automatically handles nested sitemap indexes natively while preventing infinite recursive loops.
  */
-export async function extractLinksFromSitemap(domainUrl) {
-  let sitemapUrl = '';
+export async function extractLinksFromSitemap(targetUrl, session, visitedSitemaps = new Set()) {
+  const discoveredSitemapLinks = new Set();
+  const targetDomain = getCleanDomain(targetUrl);
   
-  // Clean the URL to get the root
   try {
-    const urlObj = new URL(domainUrl);
-    sitemapUrl = `${urlObj.origin}/sitemap.xml`;
-  } catch (e) {
-    return [];
-  }
+    const urlObj = new URL(targetUrl);
+    // Standard sitemap paths. Only use these if we are at the top level.
+    const sitemapTargets = visitedSitemaps.size === 0 
+      ? [`${urlObj.origin}/sitemap.xml`, `${urlObj.origin}/sitemap_index.xml`] 
+      : [targetUrl];
 
-  try {
-    console.log(`Checking for sitemap at: ${sitemapUrl}`);
-    
-    const response = await axios.get(sitemapUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
-        'Accept': 'application/xml, text/xml, */*; q=0.01'
-      },
-      timeout: 10000,
-      httpsAgent: new https.Agent({ rejectUnauthorized: false })
-    });
+    console.log(`[Sitemap] Initiating secure sitemap discovery for domain: ${targetDomain}`);
 
-    if (!response.data) return [];
-
-    const $ = cheerio.load(response.data, { xmlMode: true });
-    const discoveredUrls = [];
-
-    // Dealership sitemaps often have sub-sitemaps (sitemap index).
-    // Let's grab all <loc> tags from the XML.
-    $('loc').each((_, el) => {
-      const link = $(el).text().trim().toLowerCase();
-      
-      // We only care about inventory/product links right now
-      if (link.includes('/inventory/') || link.includes('/new/') || link.includes('/used/')) {
-        discoveredUrls.push(link);
+    for (const sitemapUrl of sitemapTargets) {
+      // Prevent infinite loops by checking if we have already scanned this exact XML file
+      if (visitedSitemaps.has(sitemapUrl)) {
+        console.log(`[Sitemap] Skipping already visited sitemap to prevent loop: ${sitemapUrl}`);
+        continue;
       }
-    });
+      
+      visitedSitemaps.add(sitemapUrl);
 
-    console.log(`Sitemap Bypass Success: Instantly found ${discoveredUrls.length} inventory links.`);
-    return discoveredUrls;
+      try {
+        const response = await fetchPage(sitemapUrl, session, urlObj.origin, false);
+        
+        if (!response || !response.data) continue;
 
-  } catch (error) {
-    console.log(`Sitemap fetch failed for ${sitemapUrl} (Status: ${error.response?.status || error.message}). Falling back to manual crawl.`);
+        const $ = cheerio.load(response.data, { xml: true });
+        const locElements = $('loc').toArray();
+
+        console.log(`[Sitemap] Scanned path (${sitemapUrl}) -> Found ${locElements.length} potential XML loc entries.`);
+
+        for (const element of locElements) {
+          const rawLink = $(element).text().trim();
+          if (!rawLink) continue;
+
+          try {
+            const canonicalized = canonicalizeUrl(rawLink);
+            
+            if (getCleanDomain(canonicalized) === targetDomain) {
+              
+              // Recursive Optimization: Safely scan nested sitemaps
+              if (canonicalized.endsWith('.xml') && canonicalized !== sitemapUrl) {
+                if (!visitedSitemaps.has(canonicalized)) {
+                  console.log(`[Sitemap] Nested sitemap index detected: ${canonicalized}. Traversing child tree...`);
+                  const childLinks = await extractLinksFromSitemap(canonicalized, session, visitedSitemaps);
+                  childLinks.forEach(link => discoveredSitemapLinks.add(link));
+                }
+              } else {
+                discoveredSitemapLinks.add(canonicalized);
+              }
+            }
+          } catch (urlParseError) {
+             // Ignore malformed links
+          }
+        }
+
+        // Optimization: If the primary sitemap yielded results, stop checking alternates (only applies at root level)
+        if (visitedSitemaps.size === 1 && discoveredSitemapLinks.size > 0) {
+          break;
+        }
+
+      } catch (networkFetchError) {
+        console.log(`[Sitemap] Path variance unreadable or blocked at (${sitemapUrl}): ${networkFetchError.message}`);
+      }
+    }
+
+    // Only log the final total at the root level to prevent console spam
+    if (visitedSitemaps.size === 1 || visitedSitemaps.size === 2) {
+       const finalUrlList = Array.from(discoveredSitemapLinks);
+       console.log(`[Sitemap] Discovery complete. Extracted ${finalUrlList.length} secure unique URLs from sitemaps.`);
+       return finalUrlList;
+    }
+    
+    return Array.from(discoveredSitemapLinks);
+
+  } catch (fatalSitemapError) {
+    console.error(`[Sitemap] Failed to process sitemap architectures safely:`, fatalSitemapError.message);
     return [];
   }
 }

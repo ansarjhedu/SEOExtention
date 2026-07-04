@@ -11,6 +11,8 @@ export default function LinkList({ links }) {
           const displayCategory = 
             link.category === 'page' && link.subCategory === 'promotion-page' ? 'Promotion' :
             link.category === 'page' && link.subCategory === 'parts-page' ? 'Parts' :
+            link.category === 'blog' ? 'Blog' :
+            link.category === '404' ? '404 Not Found' :
             link.category === 'collection' ? 'Brand' : 
             link.category || link.type;
 
@@ -22,12 +24,11 @@ export default function LinkList({ links }) {
                 </span>
                 
                 <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wider shrink-0
-                  ${displayCategory === 'Promotion' 
-                    ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20' 
-                    : displayCategory === 'Parts'
-                    ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
-                    : link.type === 'internal' 
-                    ? 'bg-teal-500/10 text-teal-400 border border-teal-500/20' 
+                  ${displayCategory === 'Promotion' ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20' 
+                    : displayCategory === 'Parts' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                    : displayCategory === 'Blog' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                    : displayCategory === '404 Not Found' ? 'bg-red-500/10 text-red-500 border border-red-500/20'
+                    : link.type === 'internal' ? 'bg-teal-500/10 text-teal-400 border border-teal-500/20' 
                     : 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20'}`}>
                   {displayCategory}
                 </span>

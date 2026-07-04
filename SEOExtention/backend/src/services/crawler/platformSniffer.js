@@ -1,64 +1,112 @@
 // services/crawler/platformSniffer.js
 
-import axios from 'axios';
-import https from 'node:https';
-import { interceptInventoryAPI } from './headlessInterceptor.js';
+import * as cheerio from 'cheerio';
+import { fetchPage } from './fetcher.js';
 
 export async function sniffPlatformAPI(targetUrl) {
   try {
     const urlObj = new URL(targetUrl);
     const origin = urlObj.origin;
 
-    console.log(`[Sniffer] Checking platform signature for ${origin}...`);
+    console.log(`[Sniffer] Checking platform signature for ${origin} via secure fetch layer...`);
 
-    // 1. Fetch homepage to grab cookies and platform signature
-    const response = await axios.get(origin, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9',
-      },
-      httpsAgent: new https.Agent({ rejectUnauthorized: false }),
-      timeout: 10000
-    });
+    // Fetch the page using our fast Tier 1 native request
+    const response = await fetchPage(origin, null, origin, false);
+
+    if (!response || !response.data) {
+      console.log(`[Sniffer] Pre-flight fetch returned empty payload. Proceeding as unknown.`);
+      return { platform: 'unknown', data: null };
+    }
 
     const html = response.data;
+    const htmlLower = html.toLowerCase();
+    const $ = cheerio.load(html);
+
+    // =================================================================
+    // HEURISTIC EXTRACTION: Gather hidden footprints from the DOM
+    // =================================================================
     
+    // 1. Extract all script sources and CSS links for CDN footprints
+    const assetUrls = [];
+    $('script[src]').each((_, el) => assetUrls.push($(el).attr('src').toLowerCase()));
+    $('link[href]').each((_, el) => assetUrls.push($(el).attr('href').toLowerCase()));
+    const assetString = assetUrls.join(' ');
+
+    // 2. Extract Meta Tags
+    const author = $('meta[name="author"]').attr('content')?.toLowerCase() || '';
+    const generator = $('meta[name="generator"]').attr('content')?.toLowerCase() || '';
+
+    // 3. Extract JSON-LD Schemas for deep data footprints
+    let schemaString = '';
+    $('script[type="application/ld+json"]').each((_, el) => {
+      schemaString += $(el).html().toLowerCase();
+    });
+
     // ==========================================
-    // PLATFORM 1: DEALER.COM
+    // PLATFORM 1: DEALER SPIKE (Fixes DFW Honda)
     // ==========================================
-    const isDealerCom = html.includes('Dealer.com') || html.includes('ddc-content');
-    if (isDealerCom) {
-      console.log(`[Sniffer] Dealer.com platform detected!`);
-      const preloadedStateMatch = html.match(/window\.__PRELOADED_STATE__\s*=\s*(\{.*?\});/);
-      
-      if (preloadedStateMatch && preloadedStateMatch[1]) {
-        return { platform: 'dealer.com', method: 'preloaded_state', rawData: JSON.parse(preloadedStateMatch[1]) };
-      }
-      
-      const apiUrl = `${origin}/apis/render/inventory/search`;
-      try {
-        const apiResponse = await axios.get(apiUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' }});
-        return { platform: 'dealer.com', method: 'api_endpoint', rawData: apiResponse.data };
-      } catch (e) {
-        return { platform: 'dealer.com', method: 'failed', data: null };
-      }
+    if (
+      htmlLower.includes('dealer spike') ||
+      assetString.includes('dealerspike.com') ||
+      assetString.includes('cdn.dealerspike') ||
+      author.includes('dealer spike') ||
+      generator.includes('dealer spike') ||
+      schemaString.includes('dealerspike.com')
+    ) {
+      console.log(`[Sniffer] Dealer Spike platform detected via deep heuristic scan!`);
+      return { platform: 'dealer_spike', method: 'heuristic_scan', data: null };
     }
 
     // ==========================================
-    // PLATFORM 2: DX1 (Texas Motor Sports)
+    // PLATFORM 2: DX1
     // ==========================================
-    const isDX1 = html.includes('DX1, LLC') || html.includes('dx1app.com');
-    if (isDX1) {
-      console.log(`[Sniffer] DX1 platform detected! Bypassing WAF with Playwright Network Interceptor...`);
-      
-      const interceptedData = await interceptInventoryAPI(origin);
-      
-      if (interceptedData) {
-        return { platform: 'dx1', method: 'playwright_interception', rawData: interceptedData };
-      }
-      
-      console.log(`[Sniffer] Interceptor missed the JSON. Raw HTML extraction required.`);
-      return { platform: 'dx1', method: 'failed', data: null };
+    if (
+      htmlLower.includes('powered by dx1') ||
+      assetString.includes('dx1app.com') ||
+      html.includes('DX1, LLC')
+    ) {
+      console.log(`[Sniffer] DX1 platform detected via deep heuristic scan!`);
+      // Notice: The slow interceptInventoryAPI has been removed. 
+      // The crawler will natively fly through DX1 until it actually hits a block.
+      return { platform: 'dx1', method: 'heuristic_scan', data: null };
+    }
+
+    // ==========================================
+    // PLATFORM 3: ARI NETWORK
+    // ==========================================
+    if (
+      htmlLower.includes('ari network') ||
+      assetString.includes('arinet.com') ||
+      author.includes('ari network services') ||
+      assetString.includes('ari-build')
+    ) {
+      console.log(`[Sniffer] ARI Network platform detected via deep heuristic scan!`);
+      return { platform: 'ari', method: 'heuristic_scan', data: null };
+    }
+
+    // ==========================================
+    // PLATFORM 4: INTERACT RV
+    // ==========================================
+    if (
+      htmlLower.includes('interact rv') ||
+      htmlLower.includes('interactrv') ||
+      assetString.includes('interactrv.com') ||
+      assetString.includes('cdn.interactrv')
+    ) {
+      console.log(`[Sniffer] Interact RV platform detected via deep heuristic scan!`);
+      return { platform: 'interact_rv', method: 'heuristic_scan', data: null };
+    }
+
+    // ==========================================
+    // PLATFORM 5: DEALER.COM
+    // ==========================================
+    if (
+      htmlLower.includes('dealer.com') || 
+      htmlLower.includes('ddc-content') ||
+      assetString.includes('dealer.com')
+    ) {
+      console.log(`[Sniffer] Dealer.com platform detected via deep heuristic scan!`);
+      return { platform: 'dealer.com', method: 'heuristic_scan', data: null };
     }
 
     // ==========================================

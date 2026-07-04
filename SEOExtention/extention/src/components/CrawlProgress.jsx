@@ -20,7 +20,7 @@ export default function CrawlProgress({
     { label: 'Dealership Name', val: dealershipProfile?.dealershipName, tier: 'VERIFIED' },
     { label: 'Legal Corp Name', val: dealershipProfile?.legalCorporateName, tier: 'VERIFIED' },
     { label: 'Main Telephone', val: dealershipProfile?.telephoneMainLine, tier: 'VERIFIED' },
-    { label: 'Fax Number Line', val: dealershipProfile?.telephoneFax, tier: 'VERIFIED' }, // Added
+    { label: 'Fax Number Line', val: dealershipProfile?.telephoneFax, tier: 'VERIFIED' },
     { label: 'Website Platform', val: dealershipProfile?.platform, tier: 'VERIFIED' },
     { label: 'Brand Logo Asset', val: dealershipProfile?.logoUrl, tier: 'VERIFIED' },
     { label: 'Google Business URL', val: dealershipProfile?.googleBusinessUrl, tier: 'VERIFIED' },
@@ -32,12 +32,25 @@ export default function CrawlProgress({
     { label: 'Required URL: Parts', val: dealershipProfile?.requiredUrls?.parts, tier: 'VERIFIED' },
     { label: 'Required URL: Service', val: dealershipProfile?.requiredUrls?.service, tier: 'VERIFIED' },
     { label: 'Required URL: Finance', val: dealershipProfile?.requiredUrls?.finance, tier: 'VERIFIED' },
-    { label: 'Form: Service Scheduler', val: dealershipProfile?.actionUrls?.serviceScheduler, tier: 'VERIFIED' },
-    { label: 'Form: Parts Request', val: dealershipProfile?.actionUrls?.partsRequest, tier: 'VERIFIED' },
-    { label: 'Form: Trade-In Valuation', val: dealershipProfile?.actionUrls?.tradeIn, tier: 'VERIFIED' },
-    { label: 'Form: Test Ride Booking', val: dealershipProfile?.actionUrls?.testRide, tier: 'VERIFIED' },
-    { label: 'Hours: Monday schedule', val: dealershipProfile?.storeHours?.monday, tier: 'VERIFIED' },
-    { label: 'Hours: Saturday schedule', val: dealershipProfile?.storeHours?.saturday, tier: 'VERIFIED' },
+    { label: 'Action: Service Scheduler', val: dealershipProfile?.actionUrls?.serviceScheduler, tier: 'VERIFIED' },
+    { label: 'Action: Parts Request', val: dealershipProfile?.actionUrls?.partsRequest, tier: 'VERIFIED' },
+    { label: 'Action: Trade-In Valuation', val: dealershipProfile?.actionUrls?.tradeIn, tier: 'VERIFIED' },
+    { label: 'Action: Test Ride Booking', val: dealershipProfile?.actionUrls?.testRide, tier: 'VERIFIED' },
+    { label: 'Action: Google Reviews', val: dealershipProfile?.actionUrls?.googleReviews, tier: 'VERIFIED' },
+    { label: 'Content: Staff / Team', val: dealershipProfile?.actionUrls?.staff, tier: 'VERIFIED' },
+    { label: 'Content: Blog / News', val: dealershipProfile?.actionUrls?.blog, tier: 'VERIFIED' },
+    { label: 'Content: Events', val: dealershipProfile?.actionUrls?.events, tier: 'VERIFIED' },
+    { label: 'Content: Testimonials', val: dealershipProfile?.actionUrls?.testimonials, tier: 'VERIFIED' },
+    { label: 'Social: Facebook', val: dealershipProfile?.socialLinks?.facebook, tier: 'VERIFIED' },
+    { label: 'Social: Instagram', val: dealershipProfile?.socialLinks?.instagram, tier: 'VERIFIED' },
+    { label: 'Social: YouTube', val: dealershipProfile?.socialLinks?.youtube, tier: 'VERIFIED' },
+    { label: 'Social: Twitter/X', val: dealershipProfile?.socialLinks?.twitter, tier: 'VERIFIED' },
+    { label: 'Store Hours: Monday', val: dealershipProfile?.storeHours?.monday, tier: 'VERIFIED' },
+    { label: 'Store Hours: Saturday', val: dealershipProfile?.storeHours?.saturday, tier: 'VERIFIED' },
+    { label: 'Service Hours: Monday', val: dealershipProfile?.serviceHours?.monday, tier: 'VERIFIED' },
+    { label: 'Service Hours: Saturday', val: dealershipProfile?.serviceHours?.saturday, tier: 'VERIFIED' },
+    { label: 'New Inventory %', val: dealershipProfile?.inventoryMetrics?.newPercentage, tier: 'INFERRED' },
+    { label: 'Used Inventory %', val: dealershipProfile?.inventoryMetrics?.usedPercentage, tier: 'INFERRED' },
   ];
 
   // 2. Compute dynamic metrics configurations in real-time
@@ -85,7 +98,7 @@ export default function CrawlProgress({
           {auditFields.map((field, idx) => {
             const hasData = field.val && String(field.val).trim() !== '';
             
-            // Resolve exact tier status configuration colors requested
+            // Resolve exact tier status configuration colors
             let badgeText = 'MISSING';
             let badgeStyle = 'bg-rose-500/10 text-rose-400 border border-rose-500/20';
             

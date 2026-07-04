@@ -25,7 +25,6 @@ export const exportCrawlDataToExcel = (groupedData, domainName, profileData) => 
   // ============================================================================
   const qaRows = [];
   
-  // Added 'customTier' so we can explicitly flag things as INFERRED when needed
   const pushEntity = (field, value, evidence = 'Extracted via LD-JSON / DOM', customTier = null) => {
     if (value && String(value).trim() !== '') {
       qaRows.push({ 'Field': field, 'Value': value, 'Tier': customTier || 'VERIFIED', 'Evidence': evidence });
@@ -36,11 +35,11 @@ export const exportCrawlDataToExcel = (groupedData, domainName, profileData) => 
 
   // --- Base Business Info ---
   pushEntity('Dealership Name', profileData?.dealershipName);
-  pushEntity('Legal Corporate Name', profileData?.legalCorporateName);
+  pushEntity('Legal Corporate Name', profileData?.legalCorporateName, 'LD-JSON / Footer Copyright Regex');
   pushEntity('Address', [profileData?.streetAddress, profileData?.city, profileData?.state, profileData?.zipCode].filter(Boolean).join(', '));
   pushEntity('Telephone Main Line', profileData?.telephoneMainLine);
-  pushEntity('Fax Number Line', profileData?.telephoneFax, 'DOM Footprint Regex Search'); // Added
-  pushEntity('Website Platform', profileData?.platform, 'Footer / Source Code Regex');
+  pushEntity('Fax Number Line', profileData?.telephoneFax, 'DOM Footprint Regex Search');
+  pushEntity('Website Platform', profileData?.platform, 'Deep Heuristic Source Scan');
   pushEntity('Logo URL', profileData?.logoUrl, 'Header Image Tag');
   pushEntity('Google Business URL', profileData?.googleBusinessUrl, 'Map iFrame Source');
   
@@ -63,6 +62,7 @@ export const exportCrawlDataToExcel = (groupedData, domainName, profileData) => 
   pushEntity('Action URL: Parts Request', profileData?.actionUrls?.partsRequest);
   pushEntity('Action URL: Trade-In / Sell', profileData?.actionUrls?.tradeIn);
   pushEntity('Action URL: Test Ride', profileData?.actionUrls?.testRide);
+  pushEntity('Action URL: Google Reviews', profileData?.actionUrls?.googleReviews, 'Google Search/Maps URL Intercept');
 
   // --- Trust / Content URLs ---
   pushEntity('Content URL: Staff / Team', profileData?.actionUrls?.staff);
@@ -76,14 +76,23 @@ export const exportCrawlDataToExcel = (groupedData, domainName, profileData) => 
   pushEntity('Social: YouTube', profileData?.socialLinks?.youtube, 'DOM Anchor Search');
   pushEntity('Social: Twitter/X', profileData?.socialLinks?.twitter, 'DOM Anchor Search');
 
-  // --- Store Hours ---
-  pushEntity('Hours: Monday', profileData?.storeHours?.monday);
-  pushEntity('Hours: Tuesday', profileData?.storeHours?.tuesday);
-  pushEntity('Hours: Wednesday', profileData?.storeHours?.wednesday);
-  pushEntity('Hours: Thursday', profileData?.storeHours?.thursday);
-  pushEntity('Hours: Friday', profileData?.storeHours?.friday);
-  pushEntity('Hours: Saturday', profileData?.storeHours?.saturday);
-  pushEntity('Hours: Sunday', profileData?.storeHours?.sunday);
+  // --- Store / Sales Hours ---
+  pushEntity('Store Hours: Monday', profileData?.storeHours?.monday, 'Sales Context DOM Block');
+  pushEntity('Store Hours: Tuesday', profileData?.storeHours?.tuesday, 'Sales Context DOM Block');
+  pushEntity('Store Hours: Wednesday', profileData?.storeHours?.wednesday, 'Sales Context DOM Block');
+  pushEntity('Store Hours: Thursday', profileData?.storeHours?.thursday, 'Sales Context DOM Block');
+  pushEntity('Store Hours: Friday', profileData?.storeHours?.friday, 'Sales Context DOM Block');
+  pushEntity('Store Hours: Saturday', profileData?.storeHours?.saturday, 'Sales Context DOM Block');
+  pushEntity('Store Hours: Sunday', profileData?.storeHours?.sunday, 'Sales Context DOM Block');
+
+  // --- Service / Parts Hours ---
+  pushEntity('Service Hours: Monday', profileData?.serviceHours?.monday, 'Service Context DOM Block');
+  pushEntity('Service Hours: Tuesday', profileData?.serviceHours?.tuesday, 'Service Context DOM Block');
+  pushEntity('Service Hours: Wednesday', profileData?.serviceHours?.wednesday, 'Service Context DOM Block');
+  pushEntity('Service Hours: Thursday', profileData?.serviceHours?.thursday, 'Service Context DOM Block');
+  pushEntity('Service Hours: Friday', profileData?.serviceHours?.friday, 'Service Context DOM Block');
+  pushEntity('Service Hours: Saturday', profileData?.serviceHours?.saturday, 'Service Context DOM Block');
+  pushEntity('Service Hours: Sunday', profileData?.serviceHours?.sunday, 'Service Context DOM Block');
 
   // --- Inventory Strategy & Metrics ---
   const totalVehicles = (profileData?.inventoryMetrics?.newCount || 0) + (profileData?.inventoryMetrics?.usedCount || 0);
@@ -120,7 +129,6 @@ export const exportCrawlDataToExcel = (groupedData, domainName, profileData) => 
   const productRows = [];
   const addProductVehicles = (vehicles, conditionLabel) => {
     (vehicles || []).forEach(link => {
-      // Ensure verification displays correctly based on price discovery status
       const hasPrice = link.price && link.price !== 'Missing' && link.price !== '';
       const finalStatus = hasPrice ? 'VERIFIED' : 'MISSING';
 
@@ -147,6 +155,7 @@ export const exportCrawlDataToExcel = (groupedData, domainName, profileData) => 
     autoSizeColumns(wsProd, productRows);
     XLSX.utils.book_append_sheet(wb, wsProd, 'Vehicle Products');
   }
+
   // ============================================================================
   // 3. INVENTORY COLLECTIONS SHEET
   // ============================================================================
@@ -221,7 +230,21 @@ export const exportCrawlDataToExcel = (groupedData, domainName, profileData) => 
   }
 
   // ============================================================================
-  // 7. STATIC PAGES & MISC SHEET
+  // 7. BLOGS & NEWS SHEET (NEW)
+  // ============================================================================
+  const blogRows = [];
+  (groupedData?.blogs || []).forEach(link => {
+    blogRows.push({ 'URL': link.url || '', 'Anchor Text': link.text || '', 'Category': 'Blog / News Article' });
+  });
+
+  if (blogRows.length > 0) {
+    const wsBlog = XLSX.utils.json_to_sheet(blogRows);
+    autoSizeColumns(wsBlog, blogRows);
+    XLSX.utils.book_append_sheet(wb, wsBlog, 'Blogs & News');
+  }
+
+  // ============================================================================
+  // 8. STATIC PAGES & MISC SHEET
   // ============================================================================
   const staticRows = [];
   (groupedData?.staticPages || []).forEach(link => {
@@ -253,6 +276,7 @@ export const constructGroupedDataFromFlatList = (flatLinks) => {
     },
     promotions: [],
     parts: [],
+    blogs: [], // Added to structure
     staticPages: [],
     other: []
   };
@@ -273,9 +297,13 @@ export const constructGroupedDataFromFlatList = (flatLinks) => {
       else if (link.subCategory === 'used-inventory') grouped.inventory.usedInventory.mainLinks.push(link);
       else grouped.inventory.generalInventory.mainLinks.push(link);
     }
+    // Added blog classification router
+    else if (link.category === 'blog') {
+      grouped.blogs.push(link);
+    }
     else if (link.category === 'page') {
       if (link.subCategory === 'promotion-page') grouped.promotions.push(link);
-      else if (link.subCategory === 'parts-page') grouped.parts.push(link);
+      else if (link.subCategory === 'parts-page' || link.subCategory === 'service-page') grouped.parts.push(link);
       else grouped.staticPages.push(link);
     } 
     else {

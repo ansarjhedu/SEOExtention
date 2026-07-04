@@ -4,12 +4,10 @@ import { Server } from 'socket.io';
 import cors from 'cors';
 import dotenv from 'dotenv';
 
-import dns from 'dns';
-dns.setServers(['8.8.8.8', '8.8.4.4']);
+// import dns from 'dns';
+// dns.setServers(['8.8.8.8', '8.8.4.4']);
 
 
-
-import { connectDB } from './config/db.js';
 import { handleSocketConnections } from './socket/socketHandler.js';
 
 // Load environment config
@@ -32,8 +30,7 @@ const io = new Server(httpServer, {
 app.use(cors());
 app.use(express.json());
 
-// Establish MongoDB Connection
-connectDB();
+
  
 // Basic API Check
 app.get('/', (req, res) => {
