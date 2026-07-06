@@ -1,7 +1,7 @@
 // services/crawler/sitemapExtractor.js
 
 import * as cheerio from 'cheerio';
-import { fetchPage } from './fetcher.js';
+import { fetchPage, fetchStealthPage } from './fetcher.js';
 import { canonicalizeUrl, getCleanDomain } from './utils.js';
 
 /**
@@ -15,8 +15,14 @@ export async function extractLinksFromSitemap(targetUrl, session, visitedSitemap
   try {
     const urlObj = new URL(targetUrl);
     // Standard sitemap paths. Only use these if we are at the top level.
-    const sitemapTargets = visitedSitemaps.size === 0 
-      ? [`${urlObj.origin}/sitemap.xml`, `${urlObj.origin}/sitemap_index.xml`] 
+   const sitemapTargets = visitedSitemaps.size === 0 
+      ? [
+          `${urlObj.origin}/sitemap.xml`, 
+          `${urlObj.origin}/sitemap_index.xml`,
+          `${urlObj.origin}/SiteMapContent.xml`,   // Dealer Spike specific
+          `${urlObj.origin}/SiteMapInventory.xml`, // <--- The hidden inventory motherlode!
+          `${urlObj.origin}/SiteMapStore.xml`      // Dealer Spike specific
+        ] 
       : [targetUrl];
 
     console.log(`[Sitemap] Initiating secure sitemap discovery for domain: ${targetDomain}`);
@@ -31,7 +37,7 @@ export async function extractLinksFromSitemap(targetUrl, session, visitedSitemap
       visitedSitemaps.add(sitemapUrl);
 
       try {
-        const response = await fetchPage(sitemapUrl, session, urlObj.origin, false);
+        const response = await fetchStealthPage(sitemapUrl, session, urlObj.origin, false);
         
         if (!response || !response.data) continue;
 

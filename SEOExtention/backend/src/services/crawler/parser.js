@@ -37,7 +37,6 @@ export function isCrawlablePath(urlStr, currentDepth = 0) {
     return false;
   }
 }
-
 export function groupDiscoveredLinks(links) {
   const grouped = {
     collections: { brandDirectories: [], brandModelLists: [], modelCatalogFilters: [] },
@@ -49,7 +48,9 @@ export function groupDiscoveredLinks(links) {
     promotions: [],      
     parts: [],           
     staticPages: [],
-    blogs: [],           // <-- ADDED: Dedicated array for blog & news links
+    blogs: [],
+    events: [],          // <-- Optional: Dedicated events array
+    testimonials: [],    // <-- Optional: Dedicated testimonials array
     other: []
   };
 
@@ -70,11 +71,13 @@ export function groupDiscoveredLinks(links) {
       else grouped.inventory.generalInventory.vehicles.push(link);
     } 
     else if (link.category === 'blog') {
-      grouped.blogs.push(link); // <-- ADDED: Routes blog category links here
+      grouped.blogs.push(link); 
     }
     else if (link.category === 'page') {
       if (link.subCategory === 'promotion-page') grouped.promotions.push(link);
       else if (link.subCategory === 'parts-page' || link.subCategory === 'service-page') grouped.parts.push(link);
+      else if (link.subCategory === 'events') grouped.events.push(link);             // <-- Route events
+      else if (link.subCategory === 'testimonials') grouped.testimonials.push(link); // <-- Route testimonials
       else grouped.staticPages.push(link);
     } 
     else {
@@ -370,4 +373,9 @@ export function parseAndExtractLinks(html, currentUrl, targetUrl, targetDomain, 
       }
     } catch (e) {}
   }
+}
+
+
+export function categorizeLink(urlStr) {
+  return { category: 'page', subCategory: 'static' };
 }

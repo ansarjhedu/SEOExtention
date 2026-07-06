@@ -88,7 +88,8 @@ function App() {
           ...(grouped?.promotions || []), 
           ...(grouped?.parts || []),      
           ...(grouped?.staticPages || []),
-          ...(grouped?.other || [])
+          ...(grouped?.other || []),
+          
         ];
         setLinks(flatLinks);
       }

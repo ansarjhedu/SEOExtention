@@ -46,9 +46,9 @@ export default function CrawlProgress({
     { label: 'Social: YouTube', val: dealershipProfile?.socialLinks?.youtube, tier: 'VERIFIED' },
     { label: 'Social: Twitter/X', val: dealershipProfile?.socialLinks?.twitter, tier: 'VERIFIED' },
     { label: 'Store Hours: Monday', val: dealershipProfile?.storeHours?.monday, tier: 'VERIFIED' },
-    { label: 'Store Hours: Saturday', val: dealershipProfile?.storeHours?.saturday, tier: 'VERIFIED' },
+    { label: 'Store Hours: Sunday', val: dealershipProfile?.storeHours?.sunday, tier: 'VERIFIED' },
     { label: 'Service Hours: Monday', val: dealershipProfile?.serviceHours?.monday, tier: 'VERIFIED' },
-    { label: 'Service Hours: Saturday', val: dealershipProfile?.serviceHours?.saturday, tier: 'VERIFIED' },
+    { label: 'Service Hours: Sunday', val: dealershipProfile?.serviceHours?.sunday, tier: 'VERIFIED' },
     { label: 'New Inventory %', val: dealershipProfile?.inventoryMetrics?.newPercentage, tier: 'INFERRED' },
     { label: 'Used Inventory %', val: dealershipProfile?.inventoryMetrics?.usedPercentage, tier: 'INFERRED' },
   ];

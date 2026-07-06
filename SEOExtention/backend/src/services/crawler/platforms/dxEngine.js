@@ -8,46 +8,105 @@ import {
 } from '../utils.js';
 
 // ============================================================================
-// 1. DX1 SPECIFIC URL CATEGORIZATION LOGIC
+// PERFORMANCE: Globally pre-compiled Regex definitions
 // ============================================================================
-export function categorizeLink(urlStr) {
+const GUID_PRODUCT_REGEX = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const KNOWN_BRANDS = [
+  'yamaha', 'kawasaki', 'cfmoto', 'ktm', 'honda', 'suzuki', 'polaris', 'can-am', 'spyder', 'seadoo', 
+  'sea-doo', 'skidoo', 'ski-doo', 'harley-davidson', 'indian', 'triumph', 'ducati', 'bmw', 'vespa', 'husqvarna'
+];
+
+// ============================================================================
+// 1. DX1 LINK FILTERING (STRICT PARTS & MATRIX TRAP BLACKSHIELD)
+// ============================================================================
+export function shouldIgnoreLink(urlStr) {
   const urlLower = urlStr.toLowerCase();
-  let category = 'page';
-  let subCategory = 'static';
-
-  const isProduct = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(urlLower);
   
-  const pathSegments = new URL(urlStr).pathname.toLowerCase().split('/').filter(Boolean);
-  const knownBrands = ['yamaha', 'kawasaki', 'cfmoto', 'ktm', 'honda', 'suzuki', 'polaris', 'can-am', 'spyder', 'seadoo', 'sea-doo', 'skidoo', 'ski-doo', 'harley-davidson', 'indian', 'triumph', 'ducati', 'bmw', 'vespa', 'husqvarna'];
-  const hasBrandSegment = pathSegments.some(seg => knownBrands.includes(seg));
-  const hasBlogSegment = pathSegments.some(seg => ['blog', 'news', 'article', 'articles'].includes(seg));
+  // 1. Explicit Directories to completely kill
+  const ignorePatterns = [
+    '/event', '/calendar', '/gallery', '/review', '/testimonial', 
+    '/social', '/widget', '/forum', '/job', '/career', '/employment', 
+    '/oemparts', '/fiche', '/microfiche', '/partsfinder', '/parts-finder', 
+    '/parts/search', '/arinet', '/cart', '/checkout', '/account', '/shop/category',
+    '/parts-diagrams', '/privacy', '/terms', '/compare-models'
+  ];
 
-  if (isProduct) {
-    category = 'product';
-    subCategory = urlLower.includes('pre-owned') || urlLower.includes('used') ? 'used-product' : 'new-product';
-  } else if (urlLower.match(/\/(search-inventory\/new|new-inventory|new-vehicles|new-models|new-powersports|search\/new)/)) {
-    category = 'inventory'; subCategory = 'new-inventory';
-  } else if (urlLower.match(/\/(search-inventory\/pre-owned|used-inventory|used-vehicles|pre-owned-models|pre-owned-powersports|search\/pre-owned|search\/used)/)) {
-    category = 'inventory'; subCategory = 'used-inventory';
-  } else if (urlLower.match(/\/(search-inventory|inventory|all-inventory|vehicles|search)/) && !urlLower.includes('search.google')) {
-    category = 'inventory'; subCategory = 'general-inventory';
-  } else if (urlLower.match(/\/(brands?|showrooms?|manufacturer-models|oem-models|catalogs?|manufacturers?|model-list)/) || hasBrandSegment) {
-    category = 'collection'; subCategory = 'brand-directory';
-  } else if (urlLower.match(/\/(service|service-department|schedule-service)/)) {
-    category = 'page'; subCategory = 'service-page';
-  } else if (urlLower.match(/\/(parts|accessories|parts-department|order-parts)/)) {
-    category = 'page'; subCategory = 'parts-page';
-  } else if (urlLower.match(/\/(promotions?|promo|special-offers|specials|current-offers|factory-promotions|sales-events|in-stock-deals|offers)/)) {
-    category = 'page'; subCategory = 'promotion-page';
-  } else if (hasBlogSegment) {
-    category = 'blog'; subCategory = 'article';
-  }
+  if (ignorePatterns.some(pattern => urlLower.includes(pattern))) return true;
 
-  return { category, subCategory };
+  try {
+    const pathname = new URL(urlStr).pathname.toLowerCase();
+    
+    // 2. The Deep-Parts Shield: Kills any link that goes DEEPER than the main /parts page.
+    // This blocks /parts/diagrams/123, but allows the top-level /parts.
+    if (pathname.match(/^\/parts\/.+/)) return true;
+    
+    // 3. The Infinite Matrix Trap Shield: DX1 generates infinite permutations of models and years.
+    // This stops the spider from crawling endlessly into the catalog filters.
+    if (pathname.includes('/model-list/') || pathname.includes('/catalogs/')) {
+      const segments = pathname.split('/').filter(Boolean);
+      if (segments.length > 3) return true; // Kills deep routing like /Model-List/Yamaha/Motorcycles/2026
+    }
+  } catch (e) {}
+
+  return false;
 }
 
 // ============================================================================
-// 2. DX1 SPECIFIC URL DETAIL EXTRACTION LOGIC
+// 2. STRICT, MUTUALLY EXCLUSIVE URL CATEGORIZATION ROUTER
+// ============================================================================
+export function categorizeLink(urlStr, statusCode = 200) {
+  let url;
+  try { url = new URL(urlStr); } catch (e) { return { category: 'page', subCategory: 'static' }; }
+
+  const urlLower = urlStr.toLowerCase();
+  const pathname = url.pathname.toLowerCase();
+  const pathSegments = pathname.split('/').filter(Boolean);
+
+  // TIER 1: Errors / 404 Dead Links (Highest Priority)
+  if (statusCode === 404 || pathname.includes('/404') || pathname.includes('page-not-found')) {
+    return { category: 'dead_link', subCategory: '404-error' };
+  }
+
+  // TIER 2: Explicit Functional Content (Must catch BEFORE Brands/Products)
+  if (pathname.match(/\/(blog|news|article|articles)/)) {
+    return { category: 'blog', subCategory: 'article' };
+  }
+  if (pathname.match(/\/(promotions?|promo|special-offers|specials|current-offers|factory-promotions|sales-events|in-stock-deals|offers)/)) {
+    return { category: 'page', subCategory: 'promotion-page' };
+  }
+  if (pathname.match(/\/(parts|accessories|parts-department|order-parts)/)) {
+    return { category: 'parts', subCategory: 'parts-main' };
+  }
+  if (pathname.match(/\/(service|service-department|schedule-service)/)) {
+    return { category: 'page', subCategory: 'service-page' };
+  }
+
+  // TIER 3: Strict Product Detail Pages (VDPs via DX1 GUID Signature)
+  if (GUID_PRODUCT_REGEX.test(pathname)) {
+    const isUsed = pathname.includes('pre-owned') || pathname.includes('used');
+    return { category: 'product', subCategory: isUsed ? 'used-product' : 'new-product' };
+  }
+
+  // TIER 4: Inventory Index Scanners
+  if (pathname.match(/\/(search-inventory|inventory|all-inventory|vehicles|search)/) && !urlLower.includes('search.google')) {
+    let subCategory = 'general-inventory';
+    if (pathname.includes('/new')) subCategory = 'new-inventory';
+    else if (pathname.includes('pre-owned') || pathname.includes('used')) subCategory = 'used-inventory';
+    return { category: 'inventory', subCategory };
+  }
+
+  // TIER 5: Brand Showrooms & Model Hubs (Safely isolated at the bottom)
+  const hasBrandSegment = pathSegments.some(seg => KNOWN_BRANDS.includes(seg));
+  if (pathname.match(/\/(brands?|showrooms?|manufacturer-models|oem-models|catalogs?|manufacturers?|model-list)/) || hasBrandSegment) {
+    return { category: 'collection', subCategory: 'brand-directory' };
+  }
+
+  // TIER 6: Safe Fallback
+  return { category: 'page', subCategory: 'static' };
+}
+
+// ============================================================================
+// 3. DX1 SPECIFIC URL DETAIL EXTRACTION LOGIC
 // ============================================================================
 export function extractAutoDetails(urlStr) {
   const details = { year: '', brandName: '', modelName: '', vehicleType: 'Vehicle' };
@@ -68,16 +127,8 @@ export function extractAutoDetails(urlStr) {
     const yearMatch = slug.match(/-((?:19|20)\d{2})-/);
     if (yearMatch) details.year = yearMatch[1];
 
-    const knownBrands = [
-      'yamaha', 'kawasaki', 'cfmoto', 'ktm', 'honda', 'suzuki', 'polaris', 'can-am', 'spyder', 'ryker', 
-      'seadoo', 'sea-doo', 'skidoo', 'ski-doo', 'harley-davidson', 'indian', 'triumph', 'ducati', 'bmw', 
-      'kymco', 'hisun', 'segway', 'royal-enfield', 'tracker', 'nitro', 'tahoe', 'mako', 'sun-tracker', 
-      'regency', 'vespa', 'piaggio', 'aprilia', 'moto-guzzi', 'husqvarna', 'gasgas', 'beta', 'sherco', 
-      'slingshot', 'timbersled', 'stark', 'kayo', 'ssr', 'benelli', 'mv-agusta', 'zero'
-    ];
-    
     let foundBrand = '';
-    for (const b of knownBrands) {
+    for (const b of KNOWN_BRANDS) {
       if (lowerSlug.includes(`-${b}-`) || lowerSlug.startsWith(`${b}-`)) {
         foundBrand = b;
         details.brandName = b.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
@@ -100,22 +151,11 @@ export function extractAutoDetails(urlStr) {
 }
 
 // ============================================================================
-// 3. DX1 CRAWLABLE PATH VALIDATION
+// 4. DX1 CRAWLABLE PATH VALIDATION
 // ============================================================================
 export function isCrawlablePath(urlStr, currentDepth = 0) {
   if (currentDepth >= 4) return false;
-
-  const lowerUrl = urlStr.toLowerCase();
-  
-  const blacklistDirectories = [
-    '/event', '/calendar', '/gallery', '/review', '/testimonial', 
-    '/social', '/widget', '/forum', '/job', '/career', '/employment', 
-    '/oemparts', '/fiche', '/microfiche', '/parts/search', '/partsfinder', 
-    '/arinet', '/cart', '/checkout', '/account', '/shop/category',
-    '/parts-diagrams', '/parts-finder', '/privacy', '/terms'
-  ];
-
-  if (blacklistDirectories.some(dir => lowerUrl.includes(dir))) return false; 
+  if (shouldIgnoreLink(urlStr)) return false;
 
   const whitelistDirectories = [
     '/brands', '/manufacturer-models', '/model-list', '/showrooms', '/catalogs',
@@ -137,6 +177,9 @@ export function isCrawlablePath(urlStr, currentDepth = 0) {
   }
 }
 
+// ============================================================================
+// 5. DX1 METADATA EXTRACTION
+// ============================================================================
 export function extractPageMetadata(html) {
   const $ = cheerio.load(html);
   let extractedPrice = '';
@@ -186,17 +229,9 @@ export function extractPageMetadata(html) {
   if (vdpHeader) {
     const yearMatch = vdpHeader.match(/\b(19[8-9]\d|20[0-2]\d)\b/);
     if (yearMatch) year = yearMatch[1];
-
-    const knownBrands = [
-      'yamaha', 'kawasaki', 'cfmoto', 'ktm', 'honda', 'suzuki', 'polaris', 'can-am', 'spyder', 'ryker', 
-      'seadoo', 'sea-doo', 'skidoo', 'ski-doo', 'harley-davidson', 'indian', 'triumph', 'ducati', 'bmw', 
-      'kymco', 'hisun', 'segway', 'royal enfield', 'tracker', 'nitro', 'tahoe', 'mako', 'sun tracker', 
-      'regency', 'vespa', 'piaggio', 'aprilia', 'moto guzzi', 'husqvarna', 'gasgas', 'beta', 'sherco'
-    ];
-    
     const lowerHeader = vdpHeader.toLowerCase();
     
-    for (const b of knownBrands) {
+    for (const b of KNOWN_BRANDS) {
        if (lowerHeader.includes(` ${b} `) || lowerHeader.startsWith(`${b} `)) {
           brandName = b.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
           
@@ -218,7 +253,7 @@ export function extractPageMetadata(html) {
 }
 
 // ============================================================================
-// 4. DX1 ENTITY & NAP DATA EXTRACTION
+// 6. DX1 ENTITY & NAP DATA EXTRACTION
 // ============================================================================
 export function extractDealershipProfile(html, currentUrl) {
   const $ = cheerio.load(html);
@@ -287,7 +322,6 @@ export function extractDealershipProfile(html, currentUrl) {
     }
   }
 
-  // Force Dealership Name into Legal Name if absolutely all else fails
   if (!profile.legalCorporateName && profile.dealershipName) {
      profile.legalCorporateName = `${profile.dealershipName} (Assumed)`;
   }
@@ -412,7 +446,7 @@ export function extractDealershipProfile(html, currentUrl) {
 }
 
 // ============================================================================
-// 5. URL DEDUPLICATION AND LINK EXTRACTION
+// 7. URL DEDUPLICATION AND LINK EXTRACTION
 // ============================================================================
 export function parseAndExtractLinks(html, currentUrl, targetUrl, targetDomain, session, currentDepth) {
   const $ = cheerio.load(html);
@@ -438,18 +472,24 @@ export function parseAndExtractLinks(html, currentUrl, targetUrl, targetDomain, 
       const isInternal = getCleanDomain(cleanUrl) === targetDomain;
       if (!isInternal) continue;
 
+      if (shouldIgnoreLink(cleanUrl)) continue;
+
       let anchorText = $(element).text().trim();
       if (!anchorText) {
         const innerImg = $(element).find('img');
         anchorText = innerImg.length ? $(innerImg).attr('alt')?.trim() || '[Image Link]' : '[No Text]';
       }
 
-      const dedupeKey = cleanUrl.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '').toLowerCase();
+      // Drop query parameters for deduplication key so ?page=1 doesn't duplicate
+      let dedupeKey = cleanUrl.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '').toLowerCase();
+      if (!dedupeKey.includes('page=') && !dedupeKey.includes('p=')) {
+          dedupeKey = dedupeKey.split('?')[0]; 
+      }
 
       if (!session.seenUniqueLinks.has(dedupeKey)) {
         session.seenUniqueLinks.add(dedupeKey);
         
-        const { category, subCategory } = categorizeLink(cleanUrl);
+        const { category, subCategory } = categorizeLink(cleanUrl, 200);
         const autoDetails = extractAutoDetails(cleanUrl);
 
         session.discoveredLinks.push({

@@ -3,13 +3,15 @@
 import Bottleneck from "bottleneck";
 import { activeCrawls } from "./state.js";
 import { getCleanDomain, canonicalizeUrl } from "./utils.js";
-import { fetchPage } from "./fetcher.js";
+import { fetchPage, fetchStealthPage } from "./fetcher.js";
 import { extractLinksFromSitemap } from "./sitemapExtractor.js";
 import { sniffPlatformAPI } from "./platformSniffer.js";
 
 // Import our routing engines
 import * as defaultParser from "./parser.js";
 import * as dxEngine from "./platforms/dxEngine.js";
+import * as dSpikeEngine from "./platforms/dSpikeEngine.js";
+import * as interactRvEngine from "./platforms/interactRvEngine.js"; // <-- Add this!
 
 // Import the grouper specifically from parser as it handles array formatting globally
 import { groupDiscoveredLinks } from "./parser.js"; 
@@ -199,16 +201,25 @@ export const runDeepCrawl = async (targetUrl, socket) => {
     const sniffResult = await sniffPlatformAPI(rootUrl.origin);
 
     // DYNAMIC ENGINE ROUTING LOGIC
-    let activeEngine;
+   let activeEngine;
+    let activeFetcher = fetchPage; // Default to standard Axios
+
     if (sniffResult.platform === 'dx1') {
       console.log(`[Router] Routing to dxEngine`);
       activeEngine = dxEngine;
-    } else if (['ari', 'dealer_spike', 'interact_rv'].includes(sniffResult.platform)) {
-      console.log(`[Router] ${sniffResult.platform.toUpperCase()} detected. Routing to defaultParser.`);
-      activeEngine = defaultParser;
+      activeFetcher = fetchPage; // Standard Axios
+    } else if (sniffResult.platform === 'dealer_spike') {
+      console.log(`[Router] Routing to dSpikeEngine`);
+      activeEngine = dSpikeEngine;
+      activeFetcher = fetchStealthPage; // Heavy Stealth
+    } else if (sniffResult.platform === 'interact_rv') {
+      console.log(`[Router] Routing to interactRvEngine`);
+      activeEngine = interactRvEngine;
+      activeFetcher = fetchStealthPage; // Heavy Stealth
     } else {
       console.log(`[Router] Routing to defaultParser`);
       activeEngine = defaultParser;
+      activeFetcher = fetchPage; // Standard Axios
     }
 
     // Set the detected platform immediately in the profile
@@ -294,7 +305,7 @@ export const runDeepCrawl = async (targetUrl, socket) => {
 
       try {
         // Wrapped with bottleneck scheduler context to obey throttling parameters smoothly
-        const response = await session.limiter.schedule(() => fetchPage(currentTarget, session, rootUrl.origin));
+        const response = await session.limiter.schedule(() => activeFetcher(currentTarget, session, rootUrl.origin));
         if (response && response.data) {
           
           // Use activeEngine dynamically for Dealership Profile extraction
@@ -391,7 +402,7 @@ export const runDeepCrawl = async (targetUrl, socket) => {
         await new Promise((resolve) => setTimeout(resolve, Math.floor(Math.random() * 150) + 100));
 
         try {
-          const response = await fetchPage(url, session, rootUrl.origin);
+          const response = await activeFetcher(url, session, rootUrl.origin);
           if (response && response.data) {
             
             // Use activeEngine dynamically for metadata extraction

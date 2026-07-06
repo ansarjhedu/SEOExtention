@@ -10,8 +10,8 @@ export default function SummaryWidgets({ links }) {
     vehicles: links.filter(l => l.category === 'product').length,
     promotions: links.filter(l => l.category === 'page' && l.subCategory === 'promotion-page').length,
     parts: links.filter(l => l.category === 'page' && l.subCategory === 'parts-page').length,
-    blogs: links.filter(l => l.category === 'blog').length,
-    error404: links.filter(l => l.category === '404').length, // Added 404 tracker
+    blogs: links.filter(l => l.category === 'blogs').length,
+    error404: links.filter(l => l.category === 'error404').length, // Added 404 tracker
   };
 
   const metrics = [
