@@ -1,16 +1,17 @@
 // services/crawler/platformSniffer.js
 
 import * as cheerio from 'cheerio';
-import { fetchStealthPage } from './fetcher.js';
+import { fetchPage } from './fetcher.js';
 
-export async function sniffPlatformAPI(targetUrl) {
+export async function sniffPlatformAPI(targetUrl, session) {
   try {
     const urlObj = new URL(targetUrl);
     const origin = urlObj.origin;
 
-    console.log(`[Sniffer] Checking platform signature for ${origin} via secure stealth fetch layer...`);
+    console.log(`[Sniffer] Checking platform signature for ${origin} via RevFetch layer...`);
 
-    const response = await fetchStealthPage(origin, null, origin);
+    // PASS SESSION INSTEAD OF NULL
+    const response = await fetchPage(origin, session);
 
     if (!response || !response.data) {
       console.log(`[Sniffer] Pre-flight fetch returned empty payload. Proceeding as unknown.`);
@@ -43,18 +44,15 @@ export async function sniffPlatformAPI(targetUrl) {
       if (href) linkString += href.toLowerCase() + ' ';
     });
 
-    // ==========================================
     // PLATFORM 1: DEALER SPIKE
-    // ==========================================
-    // Aggressive Dealer Spike footprints (Catches DFW Honda & modern headless DS sites)
     if (
       htmlLower.includes('dealer spike') ||
       assetString.includes('dealerspike.com') ||
-      assetString.includes('cdn.powersportsnetwork.com') || // DFW Honda CDN
-      assetString.includes('cdn.psndealer.com') ||          // Legacy DS CDN
+      assetString.includes('cdn.powersportsnetwork.com') || 
+      assetString.includes('cdn.psndealer.com') ||          
       assetString.includes('cdn.netmotorcycles.com') ||
-      htmlLower.includes('ds-wrapper') ||                   
-      htmlLower.includes('data-inventory-id') ||            // React DS 
+      htmlLower.includes('ds-wrapper') ||                  
+      htmlLower.includes('data-inventory-id') ||            
       author.includes('dealer spike') ||
       generator.includes('dealer spike') ||
       schemaString.includes('dealerspike.com') ||
@@ -66,9 +64,7 @@ export async function sniffPlatformAPI(targetUrl) {
       return { platform: 'dealer_spike', method: 'heuristic_scan', data: null };
     }
 
-    // ==========================================
     // PLATFORM 2: DX1
-    // ==========================================
     if (
       htmlLower.includes('powered by dx1') ||
       assetString.includes('dx1app.com') ||
@@ -79,9 +75,7 @@ export async function sniffPlatformAPI(targetUrl) {
       return { platform: 'dx1', method: 'heuristic_scan', data: null };
     }
 
-    // ==========================================
     // PLATFORM 3: ARI NETWORK
-    // ==========================================
     if (
       htmlLower.includes('ari network') ||
       assetString.includes('arinet.com') ||
@@ -94,9 +88,7 @@ export async function sniffPlatformAPI(targetUrl) {
       return { platform: 'ari', method: 'heuristic_scan', data: null };
     }
 
-    // ==========================================
     // PLATFORM 4: INTERACT RV
-    // ==========================================
     if (
       htmlLower.includes('interact rv') ||
       htmlLower.includes('interactrv') ||
@@ -108,9 +100,7 @@ export async function sniffPlatformAPI(targetUrl) {
       return { platform: 'interact_rv', method: 'heuristic_scan', data: null };
     }
     
-    // ==========================================
     // PLATFORM 5: DEALER.COM
-    // ==========================================
     if (
       htmlLower.includes('dealer.com') || 
       htmlLower.includes('ddc-content') ||

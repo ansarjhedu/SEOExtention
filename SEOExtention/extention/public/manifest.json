@@ -6,7 +6,9 @@
   "permissions": [
     "sidePanel",
     "activeTab",
-    "scripting"
+    "scripting",
+    "nativeMessaging",
+    "cookies"
   ],
   "host_permissions": [
     "<all_urls>"

@@ -239,7 +239,7 @@ export const runDeepCrawl = async (targetUrl, socket) => {
  // =================================================================
     // SITEMAP SEEDING LAYER (Smart Routing for Maximum Speed)
     // =================================================================
-    if (!session.isTerminated) {
+  if (!session.isTerminated) {
       try {
         session.socket.emit("crawl_status", {
           status: "processing",
@@ -248,15 +248,26 @@ export const runDeepCrawl = async (targetUrl, socket) => {
         });
 
         const sitemapLinks = await extractLinksFromSitemap(targetUrl, session);
-        console.log(`[Crawler] Categorizing and seeding ${sitemapLinks.length} items from sitemap...`);
+        const safeLinks = sitemapLinks || [];
+        console.log(`[Crawler] Categorizing and seeding ${safeLinks.length} items from sitemap...`);
         
-        for (const url of sitemapLinks) {
+        // 🚨 NEW FIX: DEALER SPIKE SITEMAP FALLBACK DETECTION 🚨
+        // If the homepage WAF blocked the sniffer, we can easily identify Dealer Spike by its sitemaps!
+        if (session.dealershipProfile.platform === 'Unknown' || session.dealershipProfile.platform === 'UNKNOWN') {
+          const sitemapString = safeLinks.join(' ').toLowerCase();
+          if (sitemapString.includes('xnewinventory') || sitemapString.includes('sitemapinventory.xml') || sitemapString.includes('page=xsitemap')) {
+            console.log(`[Router] 🚨 FALLBACK ACTIVATED: Dealer Spike sitemap signatures detected! Switching engine dynamically...`);
+            activeEngine = dSpikeEngine;
+            session.dealershipProfile.platform = 'DEALER_SPIKE';
+          }
+        }
+
+        for (const url of safeLinks) {
           if (!session.seenUniqueLinks.has(url)) {
             session.seenUniqueLinks.add(url);
             
-            // Categorize the URL instantly without fetching the page
             const { category, subCategory } = activeEngine.categorizeLink(url);
-            // Seed it into the discovered database immediately
+            
             session.discoveredLinks.push({
               url: url,
               text: '[Sitemap Link]',
@@ -268,15 +279,13 @@ export const runDeepCrawl = async (targetUrl, socket) => {
               verificationStatus: (category === 'product' || category === 'Vehicle Products' || category === 'Inventory Collection') ? 'missing' : 'not_applicable'
             });
 
-            // CRITICAL SPEED FIX: Do not put vehicle products into Phase 1!
-            // Only push structural/category pages to Phase 1 discovery. Vehicles go straight to Phase 2.
             if (category !== 'product' && category !== 'Vehicle Products') {
               session.queue.push({ url, depth: 1 });
             }
           }
         }
       } catch (sitemapError) {
-        console.error(`[Crawler] Sitemap seeding bypassed, relying purely on root traversal: ${sitemapError.message}`);
+        console.error(`[Crawler] Sitemap seeding bypassed: ${sitemapError.message}`);
       }
     }
     // =================================================================

@@ -1,4 +1,4 @@
-// src/App.js
+// src/App.jsx
 
 import React, { useState, useEffect, useRef } from 'react';
 import io from 'socket.io-client';
@@ -35,7 +35,6 @@ function App() {
   const [queueSize, setQueueSize] = useState(0);
   const [groupedData, setGroupedData] = useState(null);
   
-  // Holds the live tracking record for real-time audit reporting
   const [dealershipProfile, setDealershipProfile] = useState(null);
 
   const socketRef = useRef(null);
@@ -46,9 +45,7 @@ function App() {
   }, [activeTab]);
 
   useEffect(() => {
-     socketRef.current = io('http://localhost:5000', {
-  //  socketRef.current = io('https://maxxopp.onrender.com', {
-
+    socketRef.current = io('http://localhost:5000', {
       reconnection: true,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
@@ -89,7 +86,6 @@ function App() {
           ...(grouped?.parts || []),      
           ...(grouped?.staticPages || []),
           ...(grouped?.other || []),
-          
         ];
         setLinks(flatLinks);
       }
@@ -118,8 +114,39 @@ function App() {
       }
     });
 
+    // ========================================================================
+    // REVFETCH HANDSHAKE PIPELINE (React -> Background -> Go -> Node)
+    // ========================================================================
+    
+    // 1. Node.js backend hits a WAF and asks React to initiate the native bypass
+    socketRef.current.on('request_client_fetch', async (data) => {
+      const { targetUrl } = data;
+
+      try {
+        console.log(`[React] Asking Background Service Worker to trigger RevFetch for: ${targetUrl}`);
+        // STRICT FIX: Standard internal message to background.js
+        chrome.runtime.sendMessage({ action: "trigger_revfetch", url: targetUrl });
+      } catch (err) {
+        console.error("❌ React-to-Background bridge failed:", err);
+        socketRef.current.emit(`client_fetch_response_${targetUrl}`, { html: "" });
+      }
+    });
+
+    // 2. Listen for the Background script broadcasting the Go Engine's HTML response
+    const handleNativeBroadcast = (message) => {
+      if (message && message.action === "revfetch_success") {
+        console.log(`✅ [React] RevFetch payload received via background broadcast for: ${message.url}`);
+        // Feed the unblocked HTML right back to the waiting Node.js socket
+        socketRef.current.emit(`client_fetch_response_${message.url}`, { html: message.html });
+      }
+    };
+
+    chrome.runtime.onMessage.addListener(handleNativeBroadcast);
+
     return () => {
       if (socketRef.current) socketRef.current.disconnect();
+      // Clean up the broadcast listener to prevent duplicate firings
+      chrome.runtime.onMessage.removeListener(handleNativeBroadcast);
     };
   }, []);
 
@@ -227,7 +254,31 @@ function App() {
         setScanning(false);
         return;
       }
-      socketRef.current.emit('start_deep_crawl', { targetUrl: activeTab.url });
+      
+      setBackendStatus('Bootstrapping client-side extraction footprint...');
+      
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId: activeTab.id },
+          files: ['content.js']
+        });
+
+        chrome.tabs.sendMessage(activeTab.id, { action: "extract_links" }, (response) => {
+          const extractedUrls = response && response.status === "success" 
+            ? response.data.filter(item => item.type === 'internal').map(item => item.url)
+            : [];
+            
+          console.log(`[Handshake] Dispatched deep crawl payload containing ${extractedUrls.length} internal references.`);
+          
+          socketRef.current.emit('start_deep_crawl', { 
+            targetUrl: activeTab.url,
+            sitemapUrls: extractedUrls 
+          });
+        });
+      } catch (err) {
+        console.warn("[Handshake] Extension execution exception, attempting unseeded deep crawl fallback:", err);
+        socketRef.current.emit('start_deep_crawl', { targetUrl: activeTab.url, sitemapUrls: [] });
+      }
     }
   };
 
@@ -299,7 +350,6 @@ function App() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans antialiased selection:bg-teal-500 selection:text-slate-950">
-      
       <Header 
         scanning={scanning} 
         serverOnline={serverOnline} 
@@ -319,8 +369,6 @@ function App() {
       )}
 
       <main className="flex-1 flex flex-col p-4 gap-4">
-        
-        {/* Run Mode Switcher - Styled with Corporate Accent */}
         {!isSystemPage && !scanning && !isTabLoading && (
           <div className="flex rounded-md bg-slate-900 p-0.5 border border-[#1b3a5c]">
             <button
@@ -340,7 +388,6 @@ function App() {
           </div>
         )}
 
-        {/* Stable Scan Controls Grid */}
         {isTabLoading ? (
           <button disabled className="w-full py-3 px-4 rounded-lg font-semibold text-sm bg-slate-900 text-slate-500 border border-slate-800 cursor-not-allowed">
             Locating Active Browser Tab...
@@ -389,7 +436,6 @@ function App() {
           )
         )}
 
-        {/* Live Data Audit Dashboard Container */}
         <CrawlProgress 
           scanning={scanning} 
           crawlMode={crawlMode} 
@@ -397,13 +443,11 @@ function App() {
           crawlProgress={crawlProgress} 
           pagesCrawled={pagesCrawled}
           queueSize={queueSize}
-          dealershipProfile={dealershipProfile} // Injects live field updates
+          dealershipProfile={dealershipProfile}
         />
 
-        {/* Links Display Panel */}
         {links.length > 0 && (
           <div className="flex flex-col gap-4 animate-fade-in">
-            
             <SummaryWidgets links={links} />
 
             <div className="flex flex-col gap-2">
