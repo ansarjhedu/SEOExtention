@@ -72,10 +72,12 @@ function App() {
       setDealershipProfile(profile);
 
       if (grouped) {
+        // Flat mapping explicitly expanded to catch the new engine taxonomy
         const flatLinks = [
           ...(grouped?.collections?.brandDirectories || []),
           ...(grouped?.collections?.brandModelLists || []),
           ...(grouped?.collections?.modelCatalogFilters || []),
+          ...(grouped?.collections?.categoryNodes || []),
           ...(grouped?.inventory?.newInventory?.mainLinks || []),
           ...(grouped?.inventory?.newInventory?.vehicles || []),
           ...(grouped?.inventory?.usedInventory?.mainLinks || []),
@@ -84,7 +86,9 @@ function App() {
           ...(grouped?.inventory?.generalInventory?.vehicles || []),
           ...(grouped?.promotions || []), 
           ...(grouped?.parts || []),      
+          ...(grouped?.blogs || []), // Ensure Blogs unspool
           ...(grouped?.staticPages || []),
+          ...(grouped?.deadLinks || []), // Ensure 404s unspool
           ...(grouped?.other || []),
         ];
         setLinks(flatLinks);
@@ -117,14 +121,10 @@ function App() {
     // ========================================================================
     // REVFETCH HANDSHAKE PIPELINE (React -> Background -> Go -> Node)
     // ========================================================================
-    
-    // 1. Node.js backend hits a WAF and asks React to initiate the native bypass
     socketRef.current.on('request_client_fetch', async (data) => {
       const { targetUrl } = data;
-
       try {
         console.log(`[React] Asking Background Service Worker to trigger RevFetch for: ${targetUrl}`);
-        // STRICT FIX: Standard internal message to background.js
         chrome.runtime.sendMessage({ action: "trigger_revfetch", url: targetUrl });
       } catch (err) {
         console.error("❌ React-to-Background bridge failed:", err);
@@ -132,11 +132,9 @@ function App() {
       }
     });
 
-    // 2. Listen for the Background script broadcasting the Go Engine's HTML response
     const handleNativeBroadcast = (message) => {
       if (message && message.action === "revfetch_success") {
         console.log(`✅ [React] RevFetch payload received via background broadcast for: ${message.url}`);
-        // Feed the unblocked HTML right back to the waiting Node.js socket
         socketRef.current.emit(`client_fetch_response_${message.url}`, { html: message.html });
       }
     };
@@ -145,7 +143,6 @@ function App() {
 
     return () => {
       if (socketRef.current) socketRef.current.disconnect();
-      // Clean up the broadcast listener to prevent duplicate firings
       chrome.runtime.onMessage.removeListener(handleNativeBroadcast);
     };
   }, []);
@@ -294,13 +291,23 @@ function App() {
     if (socketRef.current) socketRef.current.emit('terminate_crawl', { targetUrl: activeTab.url });
   };
 
+  // FILTER LOGIC: Matches Engine Taxonomy
+ // FILTER LOGIC: Matches Engine Taxonomy Resiliently
   const filteredLinks = links.filter(link => {
+    const isPromo = link.category === 'page' && link.subCategory === 'promotion-page';
+    const isParts = link.subCategory === 'parts-page' || link.subCategory === 'parts-main' || link.category === 'parts';
+    const isBlog = link.category === 'blog';
+    const is404 = link.category === 'dead_link';
+    const isPage = link.category === 'page' && !isPromo && !isParts;
+
     const matchesCategory = 
       filter === 'all' || 
-      (filter === 'promotions' && link.category === 'page' && link.subCategory === 'promotion-page') ||
-      (filter === 'parts' && link.category === 'page' && link.subCategory === 'parts-page') ||
-      (filter === 'page' && link.category === 'page' && link.subCategory !== 'promotion-page' && link.subCategory !== 'parts-page') ||
-      (link.category === filter && filter !== 'promotions' && filter !== 'parts' && filter !== 'page');
+      (filter === 'promotions' && isPromo) ||
+      (filter === 'parts' && isParts) ||
+      (filter === 'page' && isPage) ||
+      (filter === 'blog' && isBlog) ||
+      (filter === 'error404' && is404) ||
+      (link.category === filter && !['promotions', 'parts', 'page', 'blog', 'error404'].includes(filter));
       
     const matchesSearch = 
       link.url.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -467,8 +474,9 @@ function App() {
                   { key: 'product', label: 'Products' },
                   { key: 'promotions', label: 'Promotions' }, 
                   { key: 'parts', label: 'Parts' },           
+                  { key: 'blog', label: 'Blogs' },           
                   { key: 'page', label: 'Pages' },
-                  { key: 'other', label: 'Other' }
+                  { key: 'error404', label: '404' },
                 ].map((tab) => (
                   <button
                     key={tab.key}

@@ -34,8 +34,11 @@ export default function CrawlProgress({
     { label: 'Required URL: Finance', val: dealershipProfile?.requiredUrls?.finance, tier: 'VERIFIED' },
     { label: 'Action: Service Scheduler', val: dealershipProfile?.actionUrls?.serviceScheduler, tier: 'VERIFIED' },
     { label: 'Action: Parts Request', val: dealershipProfile?.actionUrls?.partsRequest, tier: 'VERIFIED' },
+    { label: 'Action: Parts Diagrams', val: dealershipProfile?.actionUrls?.partsDiagrams, tier: 'VERIFIED' }, // 🚨 NEW
     { label: 'Action: Trade-In Valuation', val: dealershipProfile?.actionUrls?.tradeIn, tier: 'VERIFIED' },
     { label: 'Action: Test Ride Booking', val: dealershipProfile?.actionUrls?.testRide, tier: 'VERIFIED' },
+    { label: 'Action: Finance App', val: dealershipProfile?.actionUrls?.financeApp, tier: 'VERIFIED' }, // 🚨 NEW
+    { label: 'Action: Warranty / Recall', val: dealershipProfile?.actionUrls?.warrantyRecall, tier: 'VERIFIED' }, // 🚨 NEW
     { label: 'Action: Google Reviews', val: dealershipProfile?.actionUrls?.googleReviews, tier: 'VERIFIED' },
     { label: 'Content: Staff / Team', val: dealershipProfile?.actionUrls?.staff, tier: 'VERIFIED' },
     { label: 'Content: Blog / News', val: dealershipProfile?.actionUrls?.blog, tier: 'VERIFIED' },
@@ -45,6 +48,12 @@ export default function CrawlProgress({
     { label: 'Social: Instagram', val: dealershipProfile?.socialLinks?.instagram, tier: 'VERIFIED' },
     { label: 'Social: YouTube', val: dealershipProfile?.socialLinks?.youtube, tier: 'VERIFIED' },
     { label: 'Social: Twitter/X', val: dealershipProfile?.socialLinks?.twitter, tier: 'VERIFIED' },
+    { label: 'Social: TikTok', val: dealershipProfile?.socialLinks?.tiktok, tier: 'VERIFIED' }, // 🚨 NEW
+    { label: 'Social: LinkedIn', val: dealershipProfile?.socialLinks?.linkedin, tier: 'VERIFIED' }, // 🚨 NEW
+    { label: 'Service: Any-Brand OK', val: dealershipProfile?.serviceDetails?.nonFranchiseAccepted ? 'Yes' : '', tier: 'VERIFIED' }, // 🚨 NEW
+    { label: 'Service: Age Limits', val: dealershipProfile?.serviceDetails?.unitAgeLimitations, tier: 'VERIFIED' }, // 🚨 NEW
+    { label: 'Parts: OEM Support', val: dealershipProfile?.partsDetails?.oemSupport ? 'Yes' : '', tier: 'VERIFIED' }, // 🚨 NEW
+    { label: 'Body Shop: Paint Services', val: dealershipProfile?.bodyShopDetails?.paintServices ? 'Yes' : '', tier: 'VERIFIED' }, // 🚨 NEW
     { label: 'Store Hours: Monday', val: dealershipProfile?.storeHours?.monday, tier: 'VERIFIED' },
     { label: 'Store Hours: Sunday', val: dealershipProfile?.storeHours?.sunday, tier: 'VERIFIED' },
     { label: 'Service Hours: Monday', val: dealershipProfile?.serviceHours?.monday, tier: 'VERIFIED' },

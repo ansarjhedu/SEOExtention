@@ -1,13 +1,10 @@
 // services/crawler/parser.js
-
 import * as cheerio from 'cheerio';
 import { getCleanDomain, isAssetUrl, getUrlCategoryAndSub, extractAutoDetailsFromUrl, canonicalizeUrl } from './utils.js';
 
 export function isCrawlablePath(urlStr, currentDepth = 0) {
   if (currentDepth >= 4) return false;
-
   const lowerUrl = urlStr.toLowerCase();
-  
   const blacklistDirectories = [
     '/event', '/calendar', '/news', '/gallery', '/review', '/testimonial', 
     '/social', '/widget', '/blog', '/article', '/post', '/tag', '/category/blog',
@@ -16,9 +13,7 @@ export function isCrawlablePath(urlStr, currentDepth = 0) {
     '/arinet', '/cart', '/checkout', '/account', '/shop/category',
     '/parts-diagrams', '/parts-finder'
   ];
-
   if (blacklistDirectories.some(dir => lowerUrl.includes(dir))) return false; 
-
   const whitelistDirectories = [
     '/brands', '/manufacturer-models', '/model-list', 
     '/inventory', '/search', 'searchinventory', '-vehicles',
@@ -26,17 +21,16 @@ export function isCrawlablePath(urlStr, currentDepth = 0) {
     '/parts', '/accessories', '/parts-department',
     '/finance', '/credit', '/service', '/about', '/contact', '/faq'
   ];
-
   try {
     const url = new URL(urlStr);
     const pathname = url.pathname.toLowerCase();
-    
     if (pathname === '/' || pathname === '') return true;
     return whitelistDirectories.some(dir => pathname.includes(dir));
   } catch (e) {
     return false;
   }
 }
+
 export function groupDiscoveredLinks(links) {
   const grouped = {
     collections: { brandDirectories: [], brandModelLists: [], modelCatalogFilters: [] },
@@ -49,8 +43,8 @@ export function groupDiscoveredLinks(links) {
     parts: [],           
     staticPages: [],
     blogs: [],
-    events: [],          // <-- Optional: Dedicated events array
-    testimonials: [],    // <-- Optional: Dedicated testimonials array
+    events: [],          
+    testimonials: [],    
     other: []
   };
 
@@ -76,17 +70,17 @@ export function groupDiscoveredLinks(links) {
     else if (link.category === 'page') {
       if (link.subCategory === 'promotion-page') grouped.promotions.push(link);
       else if (link.subCategory === 'parts-page' || link.subCategory === 'service-page') grouped.parts.push(link);
-      else if (link.subCategory === 'events') grouped.events.push(link);             // <-- Route events
-      else if (link.subCategory === 'testimonials') grouped.testimonials.push(link); // <-- Route testimonials
+      else if (link.subCategory === 'events') grouped.events.push(link);             
+      else if (link.subCategory === 'testimonials') grouped.testimonials.push(link); 
       else grouped.staticPages.push(link);
     } 
     else {
       grouped.other.push(link);
     }
   }
-
   return grouped;
 }
+
 export function extractPageMetadata(html) {
   const $ = cheerio.load(html);
   let extractedPrice = '';
@@ -145,15 +139,24 @@ export function extractPageMetadata(html) {
 
 export function extractDealershipProfile(html, currentUrl) {
   const $ = cheerio.load(html);
+  
+  // ALIGNMENT: Added the exact missing requirement blocks to the base profile.
   const profile = {
     dealershipName: '', legalCorporateName: '', dbaAlternateName: '', streetAddress: '',
     city: '', state: '', zipCode: '', telephoneMainLine: '', telephoneFax: '', 
     latitude: '', longitude: '', googleBusinessUrl: '', logoUrl: '', platform: '',
     socialLinks: { facebook: '', instagram: '', youtube: '', twitter: '' },
-    requiredUrls: { parts: '', service: '', finance: '' },
-    actionUrls: { serviceScheduler: '', partsRequest: '', tradeIn: '', testRide: '', staff: '', blog: '', events: '', testimonials: '' },
+    requiredUrls: { parts: '', service: '', finance: '', bodyShop: '', careers: '' }, // <-- Added bodyShop/careers
+    actionUrls: { serviceScheduler: '', partsRequest: '', tradeIn: '', testRide: '', staff: '', blog: '', events: '', testimonials: '', googleReviews: '' }, // <-- Added googleReviews
     departmentPhones: { sales: '', service: '', parts: '' },
-    storeHours: { monday: '', tuesday: '', wednesday: '', thursday: '', friday: '', saturday: '', sunday: '' }
+    storeHours: { monday: '', tuesday: '', wednesday: '', thursday: '', friday: '', saturday: '', sunday: '' },
+    serviceHours: { monday: '', tuesday: '', wednesday: '', thursday: '', friday: '', saturday: '', sunday: '' }, // <-- Explicitly added
+    
+    // NEW CLIENT REQUIREMENT ARRAYS
+    financeDetails: { lendingPartners: [], programsOffered: [] },
+    serviceDetails: { tiers: [], claims: [] },
+    partsDetails: { oemSupport: false, aftermarketSupport: false },
+    bodyShopDetails: { servicesOffered: [] }
   };
 
   const htmlLower = html.toLowerCase();
@@ -162,7 +165,6 @@ export function extractDealershipProfile(html, currentUrl) {
   else if (htmlLower.includes('ari network') || htmlLower.includes('arinet')) profile.platform = 'ARI';
   else if (htmlLower.includes('wp-content')) profile.platform = 'WordPress';
 
-  // Logo Harvesting
   $('header img, img.logo, img[id*="logo"], a.navbar-brand img').each((_, el) => {
     if (!profile.logoUrl) {
       const src = $(el).attr('src');
@@ -172,7 +174,6 @@ export function extractDealershipProfile(html, currentUrl) {
     }
   });
 
-  // UNTOUCHED ORIGINAL DEALERSHIP NAME & IDENTITY BLOCK (Works 100%)
   $('script[type="application/ld+json"]').each((_, el) => {
     try {
       const data = JSON.parse($(el).html());
@@ -193,7 +194,6 @@ export function extractDealershipProfile(html, currentUrl) {
     } catch (e) {}
   });
 
-  // 4. AUTONOMOUS SCOPED FOOTER HOURS SCANNER
   const dayMap = {
     monday: ['monday', 'mon.', 'mon'],
     tuesday: ['tuesday', 'tue.', 'tue'],
@@ -226,7 +226,6 @@ export function extractDealershipProfile(html, currentUrl) {
     }
   });
 
-  // 5. FIXED DEPARTMENT PHONE SCRAPER: Enforces strict word keywords matching to prevent random numbers
   $('a[href^="tel:"], p, div, span, tr, td').each((_, el) => {
     const text = $(el).text().trim();
     const phoneMatches = [...text.matchAll(/(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/g)].map(m => m[0]);
@@ -253,12 +252,10 @@ export function extractDealershipProfile(html, currentUrl) {
       return; 
     }
 
-    // Set main line if clicking a direct tel anchor link
     if (!profile.telephoneMainLine && $(el).is('a[href^="tel:"]')) {
       profile.telephoneMainLine = cleanPhone;
     }
     
-    // Strict Proximity Guard: Only assign if keyword matches the specific row string text
     if (/\bsales\b/i.test(combinedContext) && !profile.departmentPhones.sales) {
       profile.departmentPhones.sales = cleanPhone;
     }
@@ -270,7 +267,6 @@ export function extractDealershipProfile(html, currentUrl) {
     }
   });
 
-  // Google Business Maps iFrames Tracker
   $('iframe[src*="maps.google"], iframe[src*="google.com/maps"]').each((_, el) => {
     const src = $(el).attr('src');
     if (src && !profile.googleBusinessUrl) {
@@ -283,7 +279,6 @@ export function extractDealershipProfile(html, currentUrl) {
     }
   });
 
-  // Action Conversion Anchor Links Sniffer
   $('a').each((_, el) => {
     const href = $(el).attr('href');
     const className = $(el).attr('class') || '';
@@ -299,6 +294,9 @@ export function extractDealershipProfile(html, currentUrl) {
     if ((lowerHref.includes('/parts') || lowerHref.includes('parts-department')) && !profile.requiredUrls.parts && !lowerHref.startsWith('http')) profile.requiredUrls.parts = new URL(href, currentUrl).toString();
     if ((lowerHref.includes('/service') || lowerHref.includes('service-department')) && !profile.requiredUrls.service && !lowerHref.startsWith('http')) profile.requiredUrls.service = new URL(href, currentUrl).toString();
     if ((lowerHref.includes('/finance') || lowerHref.includes('/credit')) && !profile.requiredUrls.finance && !lowerHref.startsWith('http')) profile.requiredUrls.finance = new URL(href, currentUrl).toString();
+    // NEW: Capture Body Shop and Careers URLs explicitly
+    if ((lowerHref.includes('body-shop') || lowerHref.includes('collision')) && !profile.requiredUrls.bodyShop && !lowerHref.startsWith('http')) profile.requiredUrls.bodyShop = new URL(href, currentUrl).toString();
+    if ((lowerHref.includes('career') || lowerHref.includes('employment')) && !profile.requiredUrls.careers && !lowerHref.startsWith('http')) profile.requiredUrls.careers = new URL(href, currentUrl).toString();
 
     if ((lowerHref.includes('schedule') || lowerHref.includes('appointment')) && !profile.actionUrls.serviceScheduler && !lowerHref.startsWith('http')) profile.actionUrls.serviceScheduler = new URL(href, currentUrl).toString();
     if (lowerHref.includes('parts-request') && !profile.actionUrls.partsRequest && !lowerHref.startsWith('http')) profile.actionUrls.partsRequest = new URL(href, currentUrl).toString();
@@ -362,7 +360,8 @@ export function parseAndExtractLinks(html, currentUrl, targetUrl, targetDomain, 
           brandName: autoDetails.brandName || '',
           modelName: autoDetails.modelName || '',
           vehicleType: autoDetails.vehicleType || 'Vehicle',
-          verificationStatus: category === 'product' ? 'missing' : 'not_applicable'
+          // FIXED: Set initial state to missing so it populates correctly
+          verificationStatus: category === 'product' ? 'missing' : 'VERIFIED'
         });
 
         if (category !== 'product' && isCrawlablePath(cleanUrl, currentDepth)) {
@@ -374,7 +373,6 @@ export function parseAndExtractLinks(html, currentUrl, targetUrl, targetDomain, 
     } catch (e) {}
   }
 }
-
 
 export function categorizeLink(urlStr) {
   return { category: 'page', subCategory: 'static' };

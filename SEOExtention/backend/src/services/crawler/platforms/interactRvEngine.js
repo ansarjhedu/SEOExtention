@@ -15,7 +15,7 @@ const KNOWN_RV_BRANDS = [
   'jayco', 'forest river', 'forest-river', 'grand design', 'grand-design', 'keystone', 'thor', 'winnebago', 
   'coachmen', 'airstream', 'fleetwood', 'newmar', 'tiffin', 'dutchmen', 'heartland', 'crossroads', 
   'cruiser-rv', 'cruiser rv', 'palomino', 'entegra', 'lance', 'gulf stream', 'gulf-stream', 'holiday rambler', 
-  'holiday-rambler', 'monaco', 'starcraft', 'highland ridge', 'highland-ridge', 'alliance', 'brinkley'
+  'holiday-rambler', 'monaco', 'starcraft', 'highland ridge', 'highland-ridge', 'alliance', 'brinkley', 'atc', 'bontrager'
 ];
 
 const DAYS_OF_WEEK = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
@@ -30,7 +30,7 @@ export function categorizeLink(urlStr) {
 
   let pathname = '';
   try {
-    pathname = new URL(urlStr).pathname.toLowerCase();
+    pathname = new URL(urlStr).pathname.toLowerCase().replace(/\/+$/, '');
   } catch(e) {
     pathname = urlLower;
   }
@@ -38,49 +38,41 @@ export function categorizeLink(urlStr) {
   const pathSegments = pathname.split('/').filter(Boolean);
   const hasBrandSegment = pathSegments.some(seg => KNOWN_RV_BRANDS.includes(seg) || KNOWN_RV_BRANDS.includes(seg.replace(/-/g, ' ')));
 
-  // TIER 1: Explicit Functional Pages
-  if (urlLower.match(/\/(blog|news|article|articles)/)) return { category: 'blog', subCategory: 'article' };
-  if (urlLower.match(/\/(parts|rv-parts|parts-department|order-parts|accessories)/)) return { category: 'page', subCategory: 'parts-page' };
-  if (urlLower.match(/\/(service|rv-service|schedule-service|service-department)/)) return { category: 'page', subCategory: 'service-page' };
-  if (urlLower.match(/\/(specials|rv-specials|clearance|promotions|offers|sales-events)/)) return { category: 'page', subCategory: 'promotion-page' };
-  if (urlLower.match(/\/(testimonial|reviews|customer-feedback)/)) return { category: 'page', subCategory: 'testimonials' };
-  if (urlLower.match(/\/(events|calendar|rv-shows|shows)/)) return { category: 'page', subCategory: 'events' };
+  if (pathname.match(/\/(blog|news|article|articles)/)) return { category: 'blog', subCategory: 'article' };
+  if (pathname.match(/\/(parts|rv-parts|parts-department|order-parts|accessories)/)) return { category: 'page', subCategory: 'parts-page' };
+  if (pathname.match(/\/(service|rv-service|schedule-service|service-department)/)) return { category: 'page', subCategory: 'service-page' };
+  if (pathname.match(/\/(specials|rv-specials|clearance|promotions|offers|sales-events)/)) return { category: 'page', subCategory: 'promotion-page' };
+  if (pathname.match(/\/(testimonial|reviews|customer-feedback)/)) return { category: 'page', subCategory: 'testimonials' };
+  if (pathname.match(/\/(events|calendar|rv-shows|shows)/)) return { category: 'page', subCategory: 'events' };
 
-  // TIER 1.5: THE DISGUISED CATEGORY SHIELD
   const hasYear = YEAR_HEADER_REGEX.test(pathname);
-  const hasID = /-\d{4,}/.test(pathname); 
+  const hasID = /-\d{4,}(?:-\d+)?$/.test(pathname); 
 
-  if ((pathname.includes('/product/') || pathname.includes('/rv/')) && !hasYear && !hasID) {
-    return { category: 'inventory', subCategory: 'category-inventory' };
+  const isProductPath = pathname.includes('/product/') || pathname.includes('/rv/');
+  
+  if (isProductPath) {
+      if (hasID || hasYear) {
+          category = 'product';
+          subCategory = urlLower.includes('pre-owned') || urlLower.includes('used') ? 'used-product' : 'new-product';
+          return { category, subCategory };
+      } else {
+          return { category: 'collection', subCategory: 'category-node' };
+      }
   }
 
-  // TIER 2: Product VDPs
-  const isProduct = 
-    pathname.includes('/product/') || 
-    pathname.includes('/rv/') || 
-    (pathname.includes('-inventory-') && hasYear) ||
-    (pathSegments.length > 2 && /\b(?:19|20)\d{2}\b/.test(pathSegments[pathSegments.length - 1]));
-
-  if (isProduct) {
-    category = 'product';
-    subCategory = urlLower.includes('pre-owned') || urlLower.includes('used') ? 'used-product' : 'new-product';
-    return { category, subCategory };
-  } 
-
-  // TIER 3: Inventory Hubs
-  if (urlLower.match(/\/(rv-search|inventory|new-rvs|used-rvs|rvs-for-sale|search-rvs|all-inventory)/)) {
+  if (pathname.match(/\/(rv-search|inventory|new-rvs|used-rvs|rvs-for-sale|search-rvs|all-inventory)/)) {
     category = 'inventory';
     subCategory = urlLower.includes('used') || urlLower.includes('pre-owned') ? 'used-inventory' : 'new-inventory';
     return { category, subCategory };
   } 
-  if (urlLower.match(/\/(travel-trailers|fifth-wheels|motorhomes|toy-haulers|pop-up-campers|truck-campers)/)) {
-    category = 'inventory'; 
-    subCategory = 'category-inventory';
+  
+  if (pathname.match(/\/(travel-trailers|fifth-wheels|motorhomes|toy-haulers|pop-up-campers|truck-campers)/)) {
+    category = 'collection'; 
+    subCategory = 'category-node';
     return { category, subCategory };
   }
 
-  // TIER 4: Brands & Showrooms
-  if (urlLower.match(/\/(brands|manufacturers|rv-brands|showrooms|manufacturer-models)/) || hasBrandSegment) {
+  if (pathname.match(/\/(brands|manufacturers|rv-brands|showrooms|manufacturer-models)/) || hasBrandSegment) {
     category = 'collection'; 
     subCategory = 'brand-directory';
     return { category, subCategory };
@@ -89,9 +81,6 @@ export function categorizeLink(urlStr) {
   return { category, subCategory };
 }
 
-// ============================================================================
-// 2. INTERACT RV SPECIFIC URL DETAIL EXTRACTION LOGIC
-// ============================================================================
 export function extractAutoDetails(urlStr) {
   const details = { year: '', brandName: '', modelName: '', vehicleType: 'RV' };
   try {
@@ -120,12 +109,8 @@ export function extractAutoDetails(urlStr) {
   return details;
 }
 
-// ============================================================================
-// 3. INTERACT RV CRAWLABLE PATH VALIDATION (Updated for Pagination)
-// ============================================================================
 export function isCrawlablePath(urlStr, currentDepth = 0) {
-  if (currentDepth >= 5) return false; // Allowed slightly deeper penetration for pagination
-
+  if (currentDepth >= 5) return false; 
   const lowerUrl = urlStr.toLowerCase();
   
   const blacklistDirectories = [
@@ -139,59 +124,87 @@ export function isCrawlablePath(urlStr, currentDepth = 0) {
 }
 
 // ============================================================================
-// 4. INTERACT RV METADATA & PRICE EXTRACTION (Surgical Fix)
+// 4. INTERACT RV METADATA & PRICE EXTRACTION
 // ============================================================================
 export function extractPageMetadata(htmlOrSelector) {
   const $ = typeof htmlOrSelector === 'function' ? htmlOrSelector : cheerio.load(htmlOrSelector);
+  
   let extractedPrice = '';
-  let potentialPrices = [];
+  let priceType = '';
+  let msrp = '';
+  let retailPrice = '';
+  let salePrice = '';
+  let sellingPrice = '';
+  let monthlyPayment = '';
+  let specs = '';
+  let year = '', brandName = '', modelName = '', vehicleType = 'RV';
 
-  // 1. JSON-LD Extraction (Safest layer)
+  const specsRaw = $('.specs, .specifications, #specs, table.spec, .details-container, .vehicle-features, .srp-vehicle-details, .item-details, .unit-description').text().replace(/\s+/g, ' ').trim();
+  if (specsRaw) specs = specsRaw.substring(0, 1500); 
+
+  $('tr, li, dt, .price-row, .price-line, dl, .pricing-detail, div').each((_, el) => {
+      const rowText = $(el).text().replace(/\s+/g, ' ').trim().toLowerCase();
+      
+      if (rowText.length > 120 || rowText.includes('ranging from') || rowText.includes('starting at')) return;
+      if (rowText.includes('rebate') || rowText.includes('fee') || rowText.includes('discount') || rowText.includes('savings') || rowText.includes('down payment')) return;
+
+      const priceMatch = rowText.match(/\$\s*([1-9]\d{0,2}(?:,\d{3})*(?:\.\d{2})?)\b/);
+      if (priceMatch) {
+          const amt = `$${priceMatch[1]}`;
+          if (rowText.includes('total price') || rowText.includes('final price')) salePrice = amt;
+          else if (rowText.includes('retail price')) retailPrice = amt;
+          else if (rowText.includes('selling price')) sellingPrice = amt;
+          else if (rowText.includes('sale price') || rowText.includes('our price') || rowText.includes('internet price')) {
+              if (!salePrice) salePrice = amt;
+          }
+          else if (rowText.includes('msrp')) msrp = amt;
+          else if (rowText.includes('/mo') || rowText.includes('per month')) monthlyPayment = `${amt}/mo`;
+      }
+  });
+
   $('script[type="application/ld+json"]').each((_, el) => {
     try {
       const data = JSON.parse($(el).html());
       const items = Array.isArray(data) ? data : [data];
       for (const item of items) {
         if ((item['@type'] === 'Product' || item['@type'] === 'Vehicle' || item['@type'] === 'RV') && item.offers && item.offers.price) {
-            if (parseFloat(item.offers.price) > 0) {
-              potentialPrices.push(parseFloat(item.offers.price));
+            if (parseFloat(item.offers.price) > 0 && !msrp) {
+              msrp = `$${Number(item.offers.price).toLocaleString('en-US', {minimumFractionDigits: 2})}`;
             }
         }
       }
     } catch (e) {}
   });
 
-  // 2. Strict DOM Hierarchy Price Scanner (Focuses on "Our Price" and "Sale Price")
-  const discountSelectors = ['.our-price', '.sale-price', '.internet-price', '.final-price', '[data-price]'];
-  for (const selector of discountSelectors) {
-    const rawText = $(selector).text().replace(/\s+/g, ' ').trim();
-    const priceMatch = rawText.match(PRICE_TEXT_REGEX);
-    if (priceMatch) {
-      const parsedVal = parseFloat(priceMatch[1].replace(/,/g, ''));
-      if (parsedVal > 1000) potentialPrices.push(parsedVal);
-    }
+  let metaDescription = $('meta[name="description"]').attr('content') || '';
+
+  if (salePrice) {
+      extractedPrice = salePrice;
+      priceType = 'Sale / Our Price';
+  } else if (sellingPrice) {
+      extractedPrice = sellingPrice;
+      priceType = 'Selling Price';
+  } else if (retailPrice) {
+      extractedPrice = retailPrice;
+      priceType = 'Retail Price';
+  } else if (msrp) {
+      extractedPrice = msrp;
+      priceType = 'MSRP';
   }
 
-  // 3. Fallback to general price and MSRP
-  if (potentialPrices.length === 0) {
-    const generalSelectors = ['.price', '.msrp', '.rv-price', '.unit-price'];
-    for (const selector of generalSelectors) {
-      const rawText = $(selector).first().text().replace(/\s+/g, ' ').trim();
-      const priceMatch = rawText.match(PRICE_TEXT_REGEX);
-      if (priceMatch) {
-        const parsedVal = parseFloat(priceMatch[1].replace(/,/g, ''));
-        if (parsedVal > 1000) potentialPrices.push(parsedVal);
-      }
-    }
+  if (!extractedPrice) {
+      $('[class*="price" i], [id*="price" i]').each((_, el) => {
+          if (extractedPrice) return;
+          const text = $(el).text().replace(/\s+/g, ' ').trim();
+          if (text.length > 50) return; 
+          const priceMatch = text.match(/\$\s*([1-9]\d{0,2}(?:,\d{3})*(?:\.\d{2})?)\b/);
+          if (priceMatch) {
+              extractedPrice = `$${priceMatch[1]}`;
+              priceType = 'Listed Price';
+          }
+      });
   }
 
-  // Choose the lowest logical valid price to represent "Our Price" accurately 
-  if (potentialPrices.length > 0) {
-    const minPrice = Math.min(...potentialPrices);
-    extractedPrice = `$${minPrice.toLocaleString('en-US', {minimumFractionDigits: 2})}`;
-  }
-
-  let year = '', brandName = '', modelName = '', vehicleType = 'RV';
   const vdpHeader = $('h1, .product-title, .rv-title, .unit-title, .vdp-title').first().text().replace(/\s+/g, ' ').trim();
   
   if (vdpHeader) {
@@ -199,7 +212,6 @@ export function extractPageMetadata(htmlOrSelector) {
     if (yearMatch) year = yearMatch[1];
 
     const lowerHeader = vdpHeader.toLowerCase();
-
     if (lowerHeader.includes('travel trailer')) vehicleType = 'Travel Trailer';
     else if (lowerHeader.includes('fifth wheel') || lowerHeader.includes('5th wheel')) vehicleType = 'Fifth Wheel';
     else if (lowerHeader.includes('motorhome') || lowerHeader.includes('class a') || lowerHeader.includes('class c') || lowerHeader.includes('class b')) vehicleType = 'Motorhome';
@@ -215,7 +227,6 @@ export function extractPageMetadata(htmlOrSelector) {
         
         const brandIndex = lowerHeader.indexOf(cleanB);
         let rawModel = vdpHeader.substring(brandIndex + cleanB.length).trim();
-        
         if (year) rawModel = rawModel.replace(new RegExp(`\\b${year}\\b`, 'g'), '').trim();
         rawModel = rawModel.replace(/new|used|for sale|pre-owned/ig, '').trim();
         if (rawModel) modelName = rawModel.replace(/^[-:/,\s]+|[-:/,\s]+$/g, '');
@@ -232,11 +243,11 @@ export function extractPageMetadata(htmlOrSelector) {
     }
   }
 
-  return { price: extractedPrice, year, brandName, modelName, vehicleType };
+  return { price: extractedPrice, priceType, msrp: msrp || retailPrice, retailPrice: '', salePrice: salePrice || sellingPrice, sellingPrice: '', monthlyPayment, specs, year, brandName, modelName, vehicleType, metaDescription };
 }
 
 // ============================================================================
-// 5. STRICT ENTITY & NAP DATA EXTRACTION
+// 5. STRICT ENTITY, GBP URL, & ADDRESS EXTRACTION
 // ============================================================================
 export function extractDealershipProfile(htmlOrSelector, currentUrl) {
   const $ = typeof htmlOrSelector === 'function' ? htmlOrSelector : cheerio.load(htmlOrSelector);
@@ -246,13 +257,48 @@ export function extractDealershipProfile(htmlOrSelector, currentUrl) {
     dealershipName: '', legalCorporateName: '', dbaAlternateName: '', streetAddress: '',
     city: '', state: '', zipCode: '', telephoneMainLine: '', telephoneFax: '', 
     latitude: '', longitude: '', googleBusinessUrl: '', logoUrl: '', platform: 'Interact RV',
-    socialLinks: { facebook: '', instagram: '', youtube: '', twitter: '' },
-    requiredUrls: { parts: '', service: '', finance: '' },
-    actionUrls: { serviceScheduler: '', partsRequest: '', tradeIn: '', testRide: '', staff: '', blog: '', events: '', testimonials: '', googleReviews: '' },
+    socialLinks: { facebook: '', instagram: '', youtube: '', twitter: '', tiktok: '', linkedin: '' },
+    requiredUrls: { parts: '', service: '', finance: '', bodyShop: '', careers: '' }, 
+    actionUrls: { serviceScheduler: '', partsRequest: '', tradeIn: '', testRide: '', staff: '', blog: '', events: '', testimonials: '', googleReviews: '', financeApp: '', partsDiagrams: '', warrantyRecall: '' },
     departmentPhones: { sales: '', service: '', parts: '' },
     storeHours: { monday: '', tuesday: '', wednesday: '', thursday: '', friday: '', saturday: '', sunday: '' },
-    serviceHours: { monday: '', tuesday: '', wednesday: '', thursday: '', friday: '', saturday: '', sunday: '' }
+    serviceHours: { monday: '', tuesday: '', wednesday: '', thursday: '', friday: '', saturday: '', sunday: '' }, 
+    financeDetails: { lendingPartners: [], programsOffered: [], financingLanguage: '' },
+    serviceDetails: { tiers: [], claims: [], brandsServiced: [], nonFranchiseAccepted: false, unitAgeLimitations: '' },
+    partsDetails: { oemSupport: false, aftermarketSupport: false, specialOrders: false },
+    bodyShopDetails: { servicesOffered: [], paintServices: false }
   };
+
+  const pageText = $('body').text().replace(/\s+/g, ' ').toLowerCase();
+  const currentUrlLower = currentUrl.toLowerCase();
+
+  // 1. DEEP TEXT MINING PER SPEC
+  if (currentUrlLower.includes('financ') || currentUrlLower.includes('credit') || currentUrlLower.includes('promo')) {
+      const lenders = ['sheffield', 'synchrony', 'octane', 'roadrunner', 'eaglemark', 'motolease', 'first community', 'freedom', 'yamaha financial', 'polaris financial'];
+      lenders.forEach(lender => {
+          if (pageText.includes(lender)) profile.financeDetails.lendingPartners.push(lender.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '));
+      });
+      const aprMatch = pageText.match(/.{0,40}\b(?:apr|months|down payment)\b.{0,40}/i);
+      if (aprMatch && !profile.financeDetails.financingLanguage) profile.financeDetails.financingLanguage = aprMatch[0].trim();
+  }
+  if (currentUrlLower.includes('service')) {
+      const repairs = ['tune-up', 'winterization', 'oil change', 'tire installation', 'tire repair', 'diagnostics', 'engine rebuild', 'maintenance', 'inspection', 'battery', 'brake', 'roof', 'plumbing', 'electrical', 'awning'];
+      repairs.forEach(repair => {
+          if (pageText.includes(repair)) profile.serviceDetails.claims.push(repair.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '));
+      });
+      if (pageText.includes('service all makes') || pageText.includes('work on all brands') || pageText.includes('any brand')) profile.serviceDetails.nonFranchiseAccepted = true;
+      const ageMatch = pageText.match(/.{0,30}\b(?:years or older|newer than|older than 10)\b.{0,30}/i);
+      if (ageMatch) profile.serviceDetails.unitAgeLimitations = ageMatch[0].trim();
+  }
+  if (currentUrlLower.includes('part') || currentUrlLower.includes('accessories')) {
+      if (pageText.includes('oem') || pageText.includes('original equipment')) profile.partsDetails.oemSupport = true;
+      if (pageText.includes('aftermarket') || pageText.includes('accessories')) profile.partsDetails.aftermarketSupport = true;
+      if (pageText.includes('special order') || pageText.includes('hard to find')) profile.partsDetails.specialOrders = true;
+  }
+  if (currentUrlLower.includes('body') || currentUrlLower.includes('collision')) {
+      if (pageText.includes('paint') || pageText.includes('color match')) profile.bodyShopDetails.paintServices = true;
+      if (pageText.includes('collision') || pageText.includes('dent')) profile.bodyShopDetails.servicesOffered.push('Collision Repair');
+  }
 
   $('header img, img.logo, img[id*="logo"], .site-logo img, .navbar-brand img').each((_, el) => {
     if (!profile.logoUrl) {
@@ -261,6 +307,7 @@ export function extractDealershipProfile(htmlOrSelector, currentUrl) {
     }
   });
 
+  // 2. SCHEMA EXTRACTION
   $('script[type="application/ld+json"]').each((_, el) => {
     try {
       const data = JSON.parse($(el).html());
@@ -286,19 +333,26 @@ export function extractDealershipProfile(htmlOrSelector, currentUrl) {
             if (item.geo.latitude) profile.latitude = String(item.geo.latitude);
             if (item.geo.longitude) profile.longitude = String(item.geo.longitude);
           }
-          if (item.sameAs && Array.isArray(item.sameAs)) {
-             item.sameAs.forEach(link => {
-                const sl = link.toLowerCase();
-                if (sl.includes('facebook.com') && !profile.socialLinks.facebook) profile.socialLinks.facebook = link;
-                if (sl.includes('instagram.com') && !profile.socialLinks.instagram) profile.socialLinks.instagram = link;
-                if (sl.includes('youtube.com') && !profile.socialLinks.youtube) profile.socialLinks.youtube = link;
-                if ((sl.includes('twitter.com') || sl.includes('x.com')) && !profile.socialLinks.twitter) profile.socialLinks.twitter = link;
-             });
-          }
         }
       }
     } catch (e) {}
   });
+
+  // DOM ADDRESS FALLBACK
+  if (!profile.streetAddress) {
+      let rawAddress = $('address').first().text().replace(/\s+/g, ' ').trim();
+      if (!rawAddress) {
+          const footerAddress = $('footer, .footer, .contact-info').text().match(/\d{1,5}\s+[A-Za-z0-9\s.,]+?(?:Street|St|Avenue|Ave|Road|Rd|Highway|Hwy|Boulevard|Blvd|Lane|Ln|Drive|Dr|Way|Court|Ct|Circle|Cir|Parkway|Pkwy)\b.*?(?:AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY)\s+\d{5}/i);
+          if (footerAddress) rawAddress = footerAddress[0].replace(/\s+/g, ' ');
+      }
+      if (rawAddress) {
+          const zipMatch = rawAddress.match(/\b\d{5}\b/);
+          if (zipMatch) profile.zipCode = zipMatch[0];
+          const stateMatch = rawAddress.match(/\b(AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY)\b/i);
+          if (stateMatch) profile.state = stateMatch[0].toUpperCase();
+          profile.streetAddress = rawAddress;
+      }
+  }
 
   if (!profile.dealershipName) {
     profile.dealershipName = $('meta[property="og:site_name"]').attr('content') || $('meta[name="author"]').attr('content') || '';
@@ -313,70 +367,122 @@ export function extractDealershipProfile(htmlOrSelector, currentUrl) {
   }
 
   if (!profile.legalCorporateName || profile.legalCorporateName.length > 60) {
-    const footerText = $('footer, .footer, #footer, .site-footer, .copyright').text().replace(/\s+/g, ' ');
-    const cpMatch = footerText.match(/(?:©|Copyright)\s*(?:20\d{2}(?:\s*-\s*20\d{2})?)?\s*([^|•\-.,]+?(?:LLC|Inc\.?|Corp\.?|Ltd\.?)?)(?=\s+\||All Rights|Privacy|Terms|Website|Powered|$)/i);
-    
+    const footerText = $('footer, .footer, #footer, .copyright, .footer-copyright, .site-footer').text().replace(/\s+/g, ' ');
+    const cpMatch = footerText.match(/(?:©|Copyright|©)\s*(?:20\d{2}(?:\s*-\s*20\d{2})?)?\s+([^|.\-*•]+?)(?:\s+(?:All\s+Rights|Privacy|Terms|Website|Site\s+Map|Sitemap|$))/i);
     if (cpMatch && cpMatch[1]) {
-      let name = cpMatch[1].replace(/all rights reserved/ig, '').replace(/website by.*/ig, '').trim();
-      if (name.length > 2 && name.length < 60) profile.legalCorporateName = name;
+      let name = cpMatch[1].replace(/all rights reserved/i, '').replace(/inc\/?/i, 'Inc.').replace(/llc\/?/i, 'LLC').trim();
+      if (name.length > 2 && name.length < 80) profile.legalCorporateName = name;
+    } 
+    if (!profile.legalCorporateName || profile.legalCorporateName.length > 60) {
+      const rawMatch = footerText.match(/©\s*(?:20\d{2})?\s*(.{5,50})/);
+      if (rawMatch && rawMatch[1]) {
+          let rawName = rawMatch[1].split(/[|•\-]/)[0];
+          let cleanedName = rawName.replace(/all rights reserved/ig, '').replace(/powered by.*/ig, '').replace(/website by.*/ig, '').trim();
+          if (cleanedName.length > 2 && cleanedName.length < 80) profile.legalCorporateName = cleanedName;
+      }
+    }
+    if (!profile.legalCorporateName || profile.legalCorporateName.length > 60) {
+      const title = $('title').text();
+      if (title.includes('|')) profile.legalCorporateName = title.split('|').pop().trim();
+      else if (title.includes('-')) profile.legalCorporateName = title.split('-').pop().trim();
     }
   }
 
   if (!profile.legalCorporateName && profile.dealershipName) {
-    profile.legalCorporateName = `${profile.dealershipName} LLC (Assumed)`;
+     profile.legalCorporateName = `${profile.dealershipName} (Assumed)`;
   }
 
-  let currentContext = 'storeHours'; 
+  // ============================================================================
+  // 3. ADVANCED LINEAR HOURS PARSER
+  // ============================================================================
+  const dayNames = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+  const getDayIndex = (str) => {
+      const d = str.toLowerCase();
+      if (d.startsWith('m')) return 0; if (d.startsWith('tu')) return 1; if (d.startsWith('w')) return 2;
+      if (d.startsWith('th')) return 3; if (d.startsWith('f')) return 4; if (d.startsWith('sa')) return 5;
+      if (d.startsWith('su')) return 6; return -1;
+  };
+  const customClosedRegex = /(gone riding|gone to church|out riding)/gi;
 
-  $('.hours, .store-hours, .hours-operation, .contact-info, .department-hours, footer, .footer').each((_, container) => {
-    const $clone = $(container).clone();
-    $clone.find('a').remove();
-    $clone.find('br').replaceWith('\n');
-    $clone.find('p, div, li, tr, h1, h2, h3, h4, h5, h6').append('\n');
+  let hoursContainers = $('.hours, .store-hours, footer, #footer, .contact-info, .business-hours, .location, [class*="hour" i], [id*="hour" i]');
+  if (hoursContainers.length === 0) hoursContainers = $('body');
 
-    const visualLines = $clone.text().split('\n')
-      .map(line => line.replace(/\s+/g, ' ').trim())
-      .filter(line => line.length >= 3 && line.length < 80);
+  hoursContainers.each((_, container) => {
+      const cleanHtml = $(container).html()
+          .replace(/<br[^>]*>/gi, '\n')
+          .replace(/<\/div>/gi, '\n')
+          .replace(/<\/p>/gi, '\n')
+          .replace(/<\/li>/gi, '\n')
+          .replace(/<\/tr>/gi, '\n')
+          .replace(/<\/dt>/gi, '\n')
+          .replace(/<\/dd>/gi, '\n')
+          .replace(/<\/h[1-6]>/gi, '\n');
+      
+      const rawLines = cheerio.load(cleanHtml).text().split('\n').map(l => l.trim()).filter(l => l.length > 0);
+      let currentDept = 'storeHours';
 
-    visualLines.forEach(line => {
-      const lowerLine = line.toLowerCase();
+      for (let i = 0; i < rawLines.length; i++) {
+          let line = rawLines[i].toLowerCase();
 
-      if (lowerLine.includes('service') || lowerLine.includes('parts')) {
-        currentContext = 'serviceHours';
-        return; 
-      } else if (lowerLine.includes('sales') || lowerLine.includes('store') || lowerLine.includes('showroom')) {
-        currentContext = 'storeHours';
-        return;
-      }
-
-      const activeHoursProfile = profile[currentContext];
-      const timeMatch = lowerLine.match(/(closed|24 hours|\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.)?\s*(?:-|to|thru|until|:)\s*\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.)?)/i);
-      const extractedTime = timeMatch ? timeMatch[1].toUpperCase() : line;
-      const hasTime = /\d{1,2}(?::\d{2})?/i.test(lowerLine);
-      const isClosed = lowerLine.includes('closed');
-
-      if (hasTime || isClosed) {
-        const rangeMatch = lowerLine.match(/(mon|tue|wed|thu|fri|sat|sun)[a-z]*\s*(?:-|to|thru)\s*(mon|tue|wed|thu|fri|sat|sun)[a-z]*/i);
-        if (rangeMatch) {
-          const startDayPrefix = rangeMatch[1].toLowerCase();
-          const endDayPrefix = rangeMatch[2].toLowerCase();
-          const startIdx = DAYS_OF_WEEK.findIndex(d => d.startsWith(startDayPrefix));
-          const endIdx = DAYS_OF_WEEK.findIndex(d => d.startsWith(endDayPrefix));
-
-          if (startIdx !== -1 && endIdx !== -1 && startIdx <= endIdx) {
-            for (let i = startIdx; i <= endIdx; i++) {
-              if (!activeHoursProfile[DAYS_OF_WEEK[i]]) activeHoursProfile[DAYS_OF_WEEK[i]] = extractedTime; 
-            }
+          if (line.includes('service') || line.includes('parts') || line.includes('inspection')) {
+              currentDept = 'serviceHours';
+          } else if (line.includes('store') || line.includes('sales') || line.includes('showroom')) {
+              currentDept = 'storeHours';
           }
-        } else {
-          DAYS_OF_WEEK.forEach(day => {
-            if (lowerLine.includes(day) || lowerLine.includes(day.substring(0, 3))) {
-              if (!activeHoursProfile[day]) activeHoursProfile[day] = extractedTime;
-            }
-          });
-        }
+
+          if (customClosedRegex.test(line)) line = line.replace(customClosedRegex, 'Closed');
+
+          const dayOnlyRegex = /^(?:monday|mon|tuesday|tue|wednesday|wed|thursday|thu|thr|friday|fri|saturday|sat|sunday|sun)(?:\s*(?:-|to|thru|and|&)\s*(?:monday|mon|tuesday|tue|wednesday|wed|thursday|thu|thr|friday|fri|saturday|sat|sunday|sun))?[\s:-]*$/i;
+          
+          let combinedLine = line;
+          if (dayOnlyRegex.test(line)) {
+              if (i + 1 < rawLines.length) {
+                  let nextLine = rawLines[i+1].toLowerCase();
+                  if (customClosedRegex.test(nextLine)) nextLine = nextLine.replace(customClosedRegex, 'Closed');
+                  
+                  if (/(\d|closed)/.test(nextLine) && nextLine.length < 50) {
+                      combinedLine = line + ' ' + nextLine;
+                      i++; 
+                  }
+              }
+          }
+
+          if (combinedLine.length > 3 && combinedLine.length < 90 && /(\d|closed)/.test(combinedLine)) {
+              const dayRegex = /\b(monday|mon|tuesday|tue|wednesday|wed|thursday|thu|thr|friday|fri|saturday|sat|sunday|sun)\b/gi;
+              let matches = [...combinedLine.matchAll(dayRegex)];
+              
+              if (matches.length > 0) {
+                  let timeString = combinedLine.replace(dayRegex, '').replace(/^[&,\-:\s(to)(thru)(and)]+/i, '').trim();
+                  timeString = timeString.replace(/^[^a-zA-Z0-9]+/, '').trim();
+                  if (timeString.toLowerCase().includes('closed') || timeString === '') timeString = 'Closed';
+
+                  let affectedDays = new Set();
+                  const rangeMatch = combinedLine.match(/\b(mon|tue|wed|thu|thr|fri|sat|sun)[a-z]*\s*(?:-|to|thru)\s*(mon|tue|wed|thu|thr|fri|sat|sun)[a-z]*\b/i);
+                  
+                  if (rangeMatch) {
+                      let startIdx = getDayIndex(rangeMatch[1]);
+                      let endIdx = getDayIndex(rangeMatch[2]);
+                      if (startIdx !== -1 && endIdx !== -1) {
+                          if (startIdx <= endIdx) {
+                              for (let j = startIdx; j <= endIdx; j++) affectedDays.add(dayNames[j]);
+                          } else { 
+                              for (let j = startIdx; j <= 6; j++) affectedDays.add(dayNames[j]);
+                              for (let j = 0; j <= endIdx; j++) affectedDays.add(dayNames[j]);
+                          }
+                      }
+                  } else {
+                      matches.forEach(m => {
+                          const idx = getDayIndex(m[0]);
+                          if (idx !== -1) affectedDays.add(dayNames[idx]);
+                      });
+                  }
+
+                  affectedDays.forEach(day => {
+                      if (!profile[currentDept][day]) profile[currentDept][day] = timeString;
+                  });
+              }
+          }
       }
-    });
   });
 
   const allPhones = [...new Set(rawHtmlString.match(PHONE_EXTRACT_REGEX) || [])];
@@ -405,82 +511,98 @@ export function extractDealershipProfile(htmlOrSelector, currentUrl) {
     const href = $(el).attr('href') || '';
     const onclick = $(el).attr('onclick') || ''; 
     const anchorText = $(el).text().toLowerCase().trim();
-    
-    const safeHref = href.toLowerCase();
-    const safeOnclick = onclick.toLowerCase();
-    const targetLink = (safeHref + ' ' + safeOnclick);
+    const targetLink = (href.toLowerCase() + ' ' + onclick.toLowerCase());
 
     if (!targetLink || targetLink.trim() === '' || targetLink.includes('javascript:void(0)')) return;
-    if (safeHref === '#' || safeHref === '/' || safeHref.startsWith('javascript:')) return;
+    if (href === '#' || href === '/' || href.startsWith('javascript:')) return;
 
     const buildUrl = (path) => { try { return new URL(path, currentUrl).toString(); } catch { return path; } };
+    let absoluteLink = href.startsWith('/') ? buildUrl(href).toLowerCase() : href.toLowerCase();
 
-    if (anchorText.includes('directions') || anchorText.includes('map') || safeHref.includes('directions') || safeHref.includes('location')) {
-      if (safeHref.includes('google.com/maps') || safeHref.includes('g.page')) {
-        profile.googleBusinessUrl = href; 
-      } else if (!profile.googleBusinessUrl && !safeHref.includes('javascript')) {
-        profile.googleBusinessUrl = buildUrl(href); 
-      }
+    // 🚨 EXPANDED UNCONDITIONAL GOOGLE MAPS TRAP
+    if (
+      absoluteLink.includes('google.com/maps') || 
+      absoluteLink.includes('maps.google.com') || 
+      absoluteLink.includes('g.page')
+    ) {
+        if (!absoluteLink.includes('reviews')) {
+            profile.googleBusinessUrl = href;
+        }
+    } else if (anchorText.includes('directions') || anchorText.includes('location')) {
+        if (!profile.googleBusinessUrl && !absoluteLink.includes('javascript')) {
+            profile.googleBusinessUrl = buildUrl(href);
+        }
     }
 
     if (targetLink.includes('facebook.com/') && !profile.socialLinks.facebook) profile.socialLinks.facebook = href;
     if (targetLink.includes('instagram.com/') && !profile.socialLinks.instagram) profile.socialLinks.instagram = href;
     if (targetLink.includes('youtube.com/') && !profile.socialLinks.youtube) profile.socialLinks.youtube = href;
     if ((targetLink.includes('twitter.com/') || targetLink.includes('x.com/')) && !profile.socialLinks.twitter) profile.socialLinks.twitter = href;
+    if (targetLink.includes('tiktok.com/') && !profile.socialLinks.tiktok) profile.socialLinks.tiktok = href;
+    if (targetLink.includes('linkedin.com/') && !profile.socialLinks.linkedin) profile.socialLinks.linkedin = href;
 
-    if (!profile.requiredUrls.parts && (safeHref.match(/\/(rv-parts|parts-department|parts|accessories)\b/) || anchorText.includes('parts department') || anchorText === 'parts')) profile.requiredUrls.parts = buildUrl(href);
-    if (!profile.requiredUrls.service && (safeHref.match(/\/(rv-service|service-department|service|repair)\b/) || anchorText.includes('service department') || anchorText === 'service')) profile.requiredUrls.service = buildUrl(href);
-    if (!profile.requiredUrls.finance && (safeHref.match(/\/(rv-financing|finance-application|finance|financing|credit|rv-loans?)\b/) || anchorText.includes('finance') || anchorText.includes('financing'))) profile.requiredUrls.finance = buildUrl(href);
+    if (!profile.requiredUrls.parts && (absoluteLink.match(/\/(rv-parts|parts-department|parts|accessories)\b/) || anchorText.includes('parts department') || anchorText === 'parts') && !absoluteLink.includes('diagram') && !absoluteLink.includes('request')) profile.requiredUrls.parts = buildUrl(href);
+    if (!profile.requiredUrls.service && (absoluteLink.match(/\/(rv-service|service-department|service|repair)\b/) || anchorText.includes('service department') || anchorText === 'service') && !absoluteLink.includes('schedule')) profile.requiredUrls.service = buildUrl(href);
+    if (!profile.requiredUrls.finance && (absoluteLink.match(/\/(rv-financing|finance-application|finance|financing|credit|rv-loans?)\b/) || anchorText.includes('finance') || anchorText.includes('financing')) && !absoluteLink.includes('app')) profile.requiredUrls.finance = buildUrl(href);
 
-    if (!profile.actionUrls.serviceScheduler && (safeHref.match(/\/(schedule-rv-service|schedule-service|service-appointment|appointment)\b/) || anchorText.includes('schedule service'))) profile.actionUrls.serviceScheduler = buildUrl(href);
-    if (!profile.actionUrls.partsRequest && (safeHref.match(/\/(request-parts|parts-request|order-parts)\b/) || anchorText.includes('order parts') || anchorText.includes('request parts'))) profile.actionUrls.partsRequest = buildUrl(href);
-    if (!profile.actionUrls.tradeIn && (safeHref.match(/\/(rv-trade-in|value-your-trade|value-your-rv|trade-in|trade)\b/) || anchorText.includes('value your trade') || anchorText.includes('trade in'))) profile.actionUrls.tradeIn = buildUrl(href);
+    if (!profile.actionUrls.serviceScheduler && (absoluteLink.match(/\/(schedule-rv-service|schedule-service|service-appointment|appointment)\b/) || anchorText.includes('schedule service')) && !absoluteLink.includes('ride') && !absoluteLink.includes('drive')) profile.actionUrls.serviceScheduler = buildUrl(href);
+    if (!profile.actionUrls.partsRequest && (absoluteLink.match(/\/(request-parts|parts-request|order-parts)\b/) || anchorText.includes('order parts') || anchorText.includes('request parts'))) profile.actionUrls.partsRequest = buildUrl(href);
+    if (!profile.actionUrls.tradeIn && (absoluteLink.match(/\/(rv-trade-in|value-your-trade|value-your-rv|trade-in|trade)\b/) || anchorText.includes('value your trade') || anchorText.includes('trade in'))) profile.actionUrls.tradeIn = buildUrl(href);
     
-    if (!profile.actionUrls.testimonials && (safeHref.match(/\/(testimonial|reviews|customer-feedback)\b/) || anchorText.includes('testimonials') || anchorText.includes('read reviews')) && !safeHref.includes('google')) {
-      profile.actionUrls.testimonials = buildUrl(href);
-    }
+    if (!profile.actionUrls.testimonials && (absoluteLink.match(/\/(testimonial|reviews|customer-feedback)\b/) || anchorText.includes('testimonials') || anchorText.includes('read reviews')) && !absoluteLink.includes('google')) profile.actionUrls.testimonials = buildUrl(href);
+    if (!profile.actionUrls.testRide && (absoluteLink.match(/\/(schedule-tour|request-info|make-an-offer|contact-sales)\b/) || anchorText.includes('schedule a tour') || anchorText.includes('request info') || anchorText.includes('make an offer'))) profile.actionUrls.testRide = buildUrl(href);
     
-    if (!profile.actionUrls.testRide && (safeHref.match(/\/(schedule-tour|request-info|make-an-offer|contact-sales)\b/) || anchorText.includes('schedule a tour') || anchorText.includes('request info') || anchorText.includes('make an offer'))) profile.actionUrls.testRide = buildUrl(href);
-    if ((safeHref.match(/\/(staff|team|about-us)\b/) || anchorText.includes('meet the team') || anchorText.includes('staff')) && !profile.actionUrls.staff) profile.actionUrls.staff = buildUrl(href);
-    if ((safeHref.match(/\/(blog|news|articles)\b/)) && !profile.actionUrls.blog) profile.actionUrls.blog = buildUrl(href);
-    if ((safeHref.match(/\/(events|calendar|shows|rv-shows)\b/) || anchorText.includes('events') || anchorText.includes('shows')) && !profile.actionUrls.events) {
-      profile.actionUrls.events = buildUrl(href);
-    }
+    if (absoluteLink.includes('finance-app') || absoluteLink.includes('credit-application') || absoluteLink.includes('credit_app')) profile.actionUrls.financeApp = buildUrl(href);
+    if (absoluteLink.includes('parts-diagram') || absoluteLink.includes('fiche') || absoluteLink.includes('oemparts')) profile.actionUrls.partsDiagrams = buildUrl(href);
+    if (absoluteLink.includes('warranty') || absoluteLink.includes('recall')) profile.actionUrls.warrantyRecall = buildUrl(href);
+
+    if ((absoluteLink.match(/\/(staff|team|about-us)\b/) || anchorText.includes('meet the team') || anchorText.includes('staff')) && !profile.actionUrls.staff) profile.actionUrls.staff = buildUrl(href);
+    if ((absoluteLink.match(/\/(blog|news|articles)\b/)) && !profile.actionUrls.blog) profile.actionUrls.blog = buildUrl(href);
+    if ((absoluteLink.match(/\/(events|calendar|shows|rv-shows)\b/) || anchorText.includes('events') || anchorText.includes('shows')) && !profile.actionUrls.events) profile.actionUrls.events = buildUrl(href);
 
     if (
-      safeHref.includes('search.google.com/local/writereview') || 
-      safeHref.includes('business.google.com/reviews') || 
-      safeHref.includes('g.page') || 
-      safeHref.includes('g.co/kgs') || 
-      safeHref.includes('lrd=') ||
-      safeHref.includes('placeid=') ||
-      (safeHref.includes('google') && (safeHref.includes('review') || anchorText.includes('review'))) ||
+      absoluteLink.includes('search.google.com/local/writereview') || 
+      absoluteLink.includes('business.google.com/reviews') || 
+      absoluteLink.includes('g.page') || 
+      absoluteLink.includes('g.co/kgs') || 
+      absoluteLink.includes('lrd=') ||
+      absoluteLink.includes('placeid=') ||
+      (absoluteLink.includes('google') && (absoluteLink.includes('review') || anchorText.includes('review'))) ||
       anchorText.includes('review us on google')
     ) {
       profile.actionUrls.googleReviews = href;
     }
 
-    if (!profile.actionUrls.googleReviews && safeOnclick.includes('g.page/r/')) {
+    if (!profile.actionUrls.googleReviews && onclick.toLowerCase().includes('g.page/r/')) {
        const extractedUrl = onclick.match(/(?:window\.open|location\.href)\s*\(\s*['"](.*?)['"]/i);
        if (extractedUrl && extractedUrl[1]) profile.actionUrls.googleReviews = extractedUrl[1];
     }
   });
 
   if (!profile.actionUrls.googleReviews) {
-    $('script').each((_, el) => {
-      const src = $(el).attr('src')?.toLowerCase() || '';
-      if (src.includes('elfsight.com') || src.includes('podium.com') || src.includes('birdeye.com') || src.includes('customerlobby.com') || src.includes('reputation.com')) {
-        profile.actionUrls.googleReviews = `Widget Script Installed (${src})`;
+    $('iframe').each((_, el) => {
+      const src = $(el).attr('src') || '';
+      const lowerSrc = src.toLowerCase();
+      if (
+        lowerSrc.includes('elfsight.com') || 
+        lowerSrc.includes('trustindex.io') || 
+        lowerSrc.includes('embedsocial.com') || 
+        lowerSrc.includes('reviews.io') || 
+        lowerSrc.includes('socius') ||
+        (lowerSrc.includes('review') && !lowerSrc.includes('youtube.com')) 
+      ) {
+        profile.actionUrls.googleReviews = `Review iFrame Detected: ${src}`;
       }
     });
   }
 
-  if (!profile.latitude || !profile.longitude) {
-    const rawGeoMatch = rawHtmlString.match(/(?:lat|latitude)["'\s:=]+(-?\d{2}\.\d{3,})["',\s]+(?:lng|lon|longitude)["'\s:=]+(-?\d{2,3}\.\d{3,})/i);
-    if (rawGeoMatch) {
-      profile.latitude = rawGeoMatch[1];
-      profile.longitude = rawGeoMatch[2];
-    }
+  if (!profile.actionUrls.googleReviews) {
+    $('script').each((_, el) => {
+      const src = $(el).attr('src')?.toLowerCase() || '';
+      if (src.includes('elfsight.com') || src.includes('podium.com') || src.includes('birdeye.com') || src.includes('customerlobby.com') || src.includes('reputation.com')) {
+         profile.actionUrls.googleReviews = `Widget Script Installed (${src})`;
+      }
+    });
   }
 
   $('iframe[src*="maps.google"], iframe[src*="google.com/maps"]').each((_, el) => {
@@ -491,6 +613,49 @@ export function extractDealershipProfile(htmlOrSelector, currentUrl) {
       if (geoMatch) { profile.longitude = geoMatch[1]; profile.latitude = geoMatch[2]; }
     }
   });
+
+  // 🚨 UNIVERSAL GPS INFERENCER & RAW HTML FALLBACKS
+  if (!profile.latitude || !profile.longitude) {
+    const geoMeta = $('meta[name="geo.position"]').attr('content');
+    if (geoMeta) {
+        const parts = geoMeta.split(';');
+        if (parts.length === 2) {
+            profile.latitude = parts[0].trim();
+            profile.longitude = parts[1].trim();
+        }
+    }
+  }
+
+  if (!profile.latitude || !profile.longitude) {
+    const rawGeoMatch = rawHtmlString.match(/(?:lat|latitude)["'\s:=]+(-?\d{1,3}\.\d{3,})["',\s]+(?:lng|lon|longitude)["'\s:=]+(-?\d{1,3}\.\d{3,})/i);
+    if (rawGeoMatch) {
+      profile.latitude = rawGeoMatch[1];
+      profile.longitude = rawGeoMatch[2];
+    }
+  }
+
+  if (!profile.latitude || !profile.longitude) {
+    if (profile.googleBusinessUrl) {
+      const atMatch = profile.googleBusinessUrl.match(/@(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)/);
+      if (atMatch) { 
+          profile.latitude = atMatch[1]; 
+          profile.longitude = atMatch[2]; 
+      } else {
+          const llMatch = profile.googleBusinessUrl.match(/(?:ll|q|query)=(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)/);
+          if (llMatch) { 
+              profile.latitude = llMatch[1]; 
+              profile.longitude = llMatch[2]; 
+          } else {
+              const pbMatch1 = profile.googleBusinessUrl.match(/!3d(-?\d{1,3}\.\d+)!4d(-?\d{1,3}\.\d+)/);
+              if (pbMatch1) { profile.latitude = pbMatch1[1]; profile.longitude = pbMatch1[2]; }
+              else {
+                  const pbMatch2 = profile.googleBusinessUrl.match(/!2d(-?\d{1,3}\.\d+)!3d(-?\d{1,3}\.\d+)/);
+                  if (pbMatch2) { profile.longitude = pbMatch2[1]; profile.latitude = pbMatch2[2]; }
+              }
+          }
+      }
+    }
+  }
 
   return profile;
 }
@@ -510,11 +675,9 @@ export function parseAndExtractLinks(htmlOrSelector, currentUrl, targetUrl, targ
     if (!href) continue;
 
     try {
-      // 1. Resolve to Absolute URL
       const absoluteUrl = new URL(href, currentUrl);
       const urlString = absoluteUrl.toString();
 
-      // 2. Base exclusions: Skip raw query links without a path, hashes, or javascript
       if (urlString.includes('javascript:') || urlString.endsWith('#')) continue;
       
       const cleanUrl = canonicalizeUrl(urlString);
@@ -529,7 +692,6 @@ export function parseAndExtractLinks(htmlOrSelector, currentUrl, targetUrl, targ
         anchorText = innerImg.length ? $(innerImg).attr('alt')?.trim() || '[Image Link]' : '[No Text]';
       }
 
-      // 3. Keep query parameters if they are pagination (e.g. ?page=2), drop them otherwise for deduplication
       let dedupeKey = cleanUrl.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '').toLowerCase();
       if (!dedupeKey.includes('page=') && !dedupeKey.includes('p=')) {
           dedupeKey = dedupeKey.split('?')[0]; 
@@ -548,12 +710,12 @@ export function parseAndExtractLinks(htmlOrSelector, currentUrl, targetUrl, targ
           category,
           subCategory,
           statusCode: 200,
-          price: '',
+          price: '', priceType: '', msrp: '', retailPrice: '', salePrice: '', sellingPrice: '', monthlyPayment: '', specs: '',
           year: autoDetails.year || '',
           brandName: autoDetails.brandName || '',
           modelName: autoDetails.modelName || '',
           vehicleType: autoDetails.vehicleType || 'RV', 
-          verificationStatus: category === 'product' ? 'missing' : 'not_applicable'
+          verificationStatus: category === 'product' ? 'MISSING' : 'VERIFIED'
         });
 
         if (category !== 'product' && isCrawlablePath(cleanUrl, currentDepth)) {

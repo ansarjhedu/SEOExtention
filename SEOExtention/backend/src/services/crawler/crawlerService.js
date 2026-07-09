@@ -11,7 +11,7 @@ import { sniffPlatformAPI } from "./platformSniffer.js";
 import * as defaultParser from "./parser.js";
 import * as dxEngine from "./platforms/dxEngine.js";
 import * as dSpikeEngine from "./platforms/dSpikeEngine.js";
-import * as interactRvEngine from "./platforms/interactRvEngine.js"; // <-- Add this!
+import * as interactRvEngine from "./platforms/interactRvEngine.js";
 
 // Import the grouper specifically from parser as it handles array formatting globally
 import { groupDiscoveredLinks } from "./parser.js"; 
@@ -61,6 +61,9 @@ export const runDeepCrawl = async (targetUrl, socket) => {
       return;
     }
 
+    // =================================================================
+    // SYNCHRONIZED MASTER SESSION STATE (11-Tab Excel Compliant)
+    // =================================================================
     const session = {
       socket,
       phase: "discovery",
@@ -78,7 +81,7 @@ export const runDeepCrawl = async (targetUrl, socket) => {
       isTerminated: false,
       engineStatus: "idle",
       currentUrl: "",
-      dealershipProfile: {
+     dealershipProfile: {
         dealershipName: "",
         legalCorporateName: "",
         dbaAlternateName: "",
@@ -93,8 +96,10 @@ export const runDeepCrawl = async (targetUrl, socket) => {
         googleBusinessUrl: "",
         logoUrl: "",
         platform: "", 
-        socialLinks: { facebook: "", instagram: "", youtube: "", twitter: "" },
-        requiredUrls: { parts: "", service: "", finance: "" },
+        // Sync: Added tiktok, linkedin
+        socialLinks: { facebook: "", instagram: "", youtube: "", twitter: "", tiktok: "", linkedin: "" },
+        requiredUrls: { parts: "", service: "", finance: "", bodyShop: "", careers: "" },
+        // Sync: Added financeApp, partsDiagrams, warrantyRecall
         actionUrls: {
           serviceScheduler: "",
           partsRequest: "",
@@ -104,37 +109,22 @@ export const runDeepCrawl = async (targetUrl, socket) => {
           blog: "",
           events: "",
           testimonials: "",
-          googleReviews: "", // <-- ADDED: Catches G.page and Google Maps review links
+          googleReviews: "",
+          financeApp: "",
+          partsDiagrams: "",
+          warrantyRecall: ""
         }, 
         departmentPhones: { sales: "", service: "", parts: "" }, 
-        storeHours: {
-          monday: "",
-          tuesday: "",
-          wednesday: "",
-          thursday: "",
-          friday: "",
-          saturday: "",
-          sunday: "",
-        },
-        serviceHours: {      // <-- ADDED: Separated service & parts department hours
-          monday: "",
-          tuesday: "",
-          wednesday: "",
-          thursday: "",
-          friday: "",
-          saturday: "",
-          sunday: "",
-        },
+        storeHours: { monday: "", tuesday: "", wednesday: "", thursday: "", friday: "", saturday: "", sunday: "" },
+        serviceHours: { monday: "", tuesday: "", wednesday: "", thursday: "", friday: "", saturday: "", sunday: "" },
         inventoryMetrics: { 
-          newCount: 0, 
-          usedCount: 0, 
-          newPercentage: '0%', 
-          usedPercentage: '0%', 
-          topBrands: [], 
-          topCategories: [] 
+          newCount: 0, usedCount: 0, newPercentage: '0%', usedPercentage: '0%', topBrands: [], topCategories: [] 
         },
-        financeDetails: { lendingPartners: [], programsOffered: [] },
-        serviceDetails: { tiers: [], claims: [] },
+        // Sync: Master Spec Arrays & Booleans
+        financeDetails: { lendingPartners: [], programsOffered: [], financingLanguage: "" },
+        serviceDetails: { tiers: [], claims: [], brandsServiced: [], nonFranchiseAccepted: false, unitAgeLimitations: "" },
+        partsDetails: { oemSupport: false, aftermarketSupport: false, specialOrders: false },
+        bodyShopDetails: { servicesOffered: [], paintServices: false }
       },
       limiter: new Bottleneck({
         maxConcurrent: 3,
@@ -198,31 +188,30 @@ export const runDeepCrawl = async (targetUrl, socket) => {
       progress: 5,
     });
 
-    const sniffResult = await sniffPlatformAPI(rootUrl.origin);
+    const sniffResult = await sniffPlatformAPI(rootUrl.origin, session);
 
     // DYNAMIC ENGINE ROUTING LOGIC
-   let activeEngine;
-    let activeFetcher = fetchPage; // Default to standard Axios
+    let activeEngine;
+    let activeFetcher = fetchPage;
 
     if (sniffResult.platform === 'dx1') {
       console.log(`[Router] Routing to dxEngine`);
       activeEngine = dxEngine;
-      activeFetcher = fetchPage; // Standard Axios
+      activeFetcher = fetchPage;
     } else if (sniffResult.platform === 'dealer_spike') {
       console.log(`[Router] Routing to dSpikeEngine`);
       activeEngine = dSpikeEngine;
-      activeFetcher = fetchStealthPage; // Heavy Stealth
+      activeFetcher = fetchStealthPage; 
     } else if (sniffResult.platform === 'interact_rv') {
       console.log(`[Router] Routing to interactRvEngine`);
       activeEngine = interactRvEngine;
-      activeFetcher = fetchStealthPage; // Heavy Stealth
+      activeFetcher = fetchStealthPage; 
     } else {
       console.log(`[Router] Routing to defaultParser`);
       activeEngine = defaultParser;
-      activeFetcher = fetchPage; // Standard Axios
+      activeFetcher = fetchPage; 
     }
 
-    // Set the detected platform immediately in the profile
     session.dealershipProfile.platform = sniffResult.platform === 'unknown' ? 'Unknown' : sniffResult.platform.toUpperCase();
 
     if (sniffResult.platform !== "unknown" && sniffResult.rawData) {
@@ -236,10 +225,10 @@ export const runDeepCrawl = async (targetUrl, socket) => {
       session.progress = 100;
     }
 
- // =================================================================
+    // =================================================================
     // SITEMAP SEEDING LAYER (Smart Routing for Maximum Speed)
     // =================================================================
-  if (!session.isTerminated) {
+    if (!session.isTerminated) {
       try {
         session.socket.emit("crawl_status", {
           status: "processing",
@@ -251,8 +240,7 @@ export const runDeepCrawl = async (targetUrl, socket) => {
         const safeLinks = sitemapLinks || [];
         console.log(`[Crawler] Categorizing and seeding ${safeLinks.length} items from sitemap...`);
         
-        // 🚨 NEW FIX: DEALER SPIKE SITEMAP FALLBACK DETECTION 🚨
-        // If the homepage WAF blocked the sniffer, we can easily identify Dealer Spike by its sitemaps!
+        // DEALER SPIKE FALLBACK DETECTION
         if (session.dealershipProfile.platform === 'Unknown' || session.dealershipProfile.platform === 'UNKNOWN') {
           const sitemapString = safeLinks.join(' ').toLowerCase();
           if (sitemapString.includes('xnewinventory') || sitemapString.includes('sitemapinventory.xml') || sitemapString.includes('page=xsitemap')) {
@@ -276,7 +264,7 @@ export const runDeepCrawl = async (targetUrl, socket) => {
               subCategory: subCategory,
               statusCode: 200,
               price: '',
-              verificationStatus: (category === 'product' || category === 'Vehicle Products' || category === 'Inventory Collection') ? 'missing' : 'not_applicable'
+              verificationStatus: (category === 'product' || category === 'Vehicle Products' || category === 'Inventory Collection') ? 'MISSING' : 'VERIFIED'
             });
 
             if (category !== 'product' && category !== 'Vehicle Products') {
@@ -288,6 +276,7 @@ export const runDeepCrawl = async (targetUrl, socket) => {
         console.error(`[Crawler] Sitemap seeding bypassed: ${sitemapError.message}`);
       }
     }
+
     // =================================================================
     // PHASE 1: SITE DISCOVERY LOOP
     // =================================================================
@@ -313,18 +302,34 @@ export const runDeepCrawl = async (targetUrl, socket) => {
       emitEngineUpdate(session.queue.length);
 
       try {
-        // Wrapped with bottleneck scheduler context to obey throttling parameters smoothly
         const response = await session.limiter.schedule(() => activeFetcher(currentTarget, session, rootUrl.origin));
         if (response && response.data) {
           
-          // Use activeEngine dynamically for Dealership Profile extraction
           const crawledProfile = activeEngine.extractDealershipProfile(response.data, currentTarget);
 
-          // The original, working property loop
+          // Deep Merge for extracted objects vs primitives safely
+         // Deep Merge for extracted objects, arrays, and primitives safely
           Object.keys(crawledProfile).forEach((key) => {
             if (typeof crawledProfile[key] === "object" && crawledProfile[key] !== null && !Array.isArray(crawledProfile[key])) {
               Object.keys(crawledProfile[key]).forEach((subKey) => {
-                if (crawledProfile[key][subKey] && !session.dealershipProfile[key][subKey]) {
+                
+                // NEW: If the subKey is an array (like lendingPartners or claims), combine them!
+                if (Array.isArray(crawledProfile[key][subKey])) {
+                  if (!session.dealershipProfile[key][subKey]) session.dealershipProfile[key][subKey] = [];
+                  crawledProfile[key][subKey].forEach(item => {
+                    if (!session.dealershipProfile[key][subKey].includes(item)) {
+                      session.dealershipProfile[key][subKey].push(item);
+                    }
+                  });
+                } 
+                // NEW: If the subKey is a boolean (like oemSupport), switch it to true if found
+                else if (typeof crawledProfile[key][subKey] === "boolean") {
+                   if (crawledProfile[key][subKey] === true) {
+                     session.dealershipProfile[key][subKey] = true;
+                   }
+                } 
+                // Standard string handling
+                else if (crawledProfile[key][subKey] && !session.dealershipProfile[key][subKey]) {
                   session.dealershipProfile[key][subKey] = crawledProfile[key][subKey];
                 }
               });
@@ -335,25 +340,23 @@ export const runDeepCrawl = async (targetUrl, socket) => {
             }
           });
 
-          // Use activeEngine dynamically for Link parsing
           activeEngine.parseAndExtractLinks(response.data, currentTarget, targetUrl, domain, session, currentDepth);
           
           calculateLiveInventoryMetrics(session);
           emitGroupedDataUpdate(session);
         }
       } catch (crawlErr) {
-
-      if (crawlErr.message.includes('404') || crawlErr.status === 404) {
+        if (crawlErr.message.includes('404') || crawlErr.status === 404) {
           const matched = session.discoveredLinks.find(l => l.url === currentTarget);
           if (matched) {
-            matched.category = '404';
+            matched.category = 'dead_link';
             matched.subCategory = 'error';
             matched.statusCode = 404;
             matched.text = '[Dead Link - 404]';
           } else {
             session.discoveredLinks.push({
               url: currentTarget, text: '[Dead Link - 404]', type: 'internal', 
-              category: '404', subCategory: 'error', statusCode: 404, price: ''
+              category: 'dead_link', subCategory: 'error', statusCode: 404, price: ''
             });
           }
         } else {
@@ -407,30 +410,36 @@ export const runDeepCrawl = async (targetUrl, socket) => {
         session.engineStatus = "crawling";
         emitEngineUpdate(session.extractionQueue.length);
 
-        // Lowered natural crawl interval behavior using a compressed jitter gap
         await new Promise((resolve) => setTimeout(resolve, Math.floor(Math.random() * 150) + 100));
 
         try {
           const response = await activeFetcher(url, session, rootUrl.origin);
           if (response && response.data) {
             
-            // Use activeEngine dynamically for metadata extraction
             const meta = activeEngine.extractPageMetadata(response.data);
             
-          const matchedRecord = session.discoveredLinks.find((link) => link.url === url);
+           const matchedRecord = session.discoveredLinks.find((link) => link.url === url);
             if (matchedRecord) {
-              // 1. Assign the Price
               matchedRecord.price = meta.price || "";
+              matchedRecord.priceType = meta.priceType || "";
+              matchedRecord.msrp = meta.msrp || "";
+              matchedRecord.retailPrice = meta.retailPrice || ""; // 🚨 NEW
+              matchedRecord.salePrice = meta.salePrice || "";
+              matchedRecord.sellingPrice = meta.sellingPrice || ""; // 🚨 NEW
+              matchedRecord.monthlyPayment = meta.monthlyPayment || "";
+              matchedRecord.specs = meta.specs || "";
+              matchedRecord.metaDescription = meta.metaDescription || "";
               
-              // 2. CRITICAL FIX: If the URL parser missed the Year/Brand/Model in Phase 1, 
-              // inject them now that we found them in the HTML DOM during Phase 2!
               if (!matchedRecord.year && meta.year) matchedRecord.year = meta.year;
               if (!matchedRecord.brandName && meta.brandName) matchedRecord.brandName = meta.brandName;
-              if (!matchedRecord.modelName && meta.modelName) matchedRecord.modelName = meta.modelName;
-              if (matchedRecord.vehicleType === 'Vehicle' && meta.vehicleType) matchedRecord.vehicleType = meta.vehicleType;
+              
+              if (!matchedRecord.modelName) {
+                  if (meta.modelName) matchedRecord.modelName = meta.modelName;
+                  else if (matchedRecord.text && matchedRecord.text !== '[Sitemap Link]') matchedRecord.modelName = matchedRecord.text;
+              }
 
-              // 3. Update Verification Status
-              matchedRecord.verificationStatus = matchedRecord.price && matchedRecord.modelName ? "verified" : "missing";
+              if (matchedRecord.vehicleType === 'Vehicle' && meta.vehicleType) matchedRecord.vehicleType = meta.vehicleType;
+              matchedRecord.verificationStatus = matchedRecord.price || matchedRecord.modelName ? "VERIFIED" : "MISSING";
             }
             calculateLiveInventoryMetrics(session);
             emitGroupedDataUpdate(session);
@@ -454,7 +463,6 @@ export const runDeepCrawl = async (targetUrl, socket) => {
         session.currentUrl = "";
       };
 
-      // TUNING 2: Splitting queue blocks into chunks of 3 parallel execution channels
       const CONCURRENT_WORKERS_COUNT = 3;
       
       while (session.extractionQueue.length > 0 && !session.isTerminated) {
@@ -463,7 +471,6 @@ export const runDeepCrawl = async (targetUrl, socket) => {
           continue;
         }
 
-        // Pull up to 3 URLs out of the array queue stack simultaneously
         const batch = [];
         for (let i = 0; i < CONCURRENT_WORKERS_COUNT; i++) {
           const url = session.extractionQueue.shift();
@@ -472,7 +479,6 @@ export const runDeepCrawl = async (targetUrl, socket) => {
 
         if (batch.length === 0) break;
 
-        // Process the current batch chunk in parallel across all worker nodes simultaneously
         await Promise.all(
           batch.map((url) => 
             session.limiter.schedule(() => processProductPage(url))
@@ -482,7 +488,6 @@ export const runDeepCrawl = async (targetUrl, socket) => {
       }
     }
 
-    
     calculateLiveInventoryMetrics(session);
     emitGroupedDataUpdate(session);
 

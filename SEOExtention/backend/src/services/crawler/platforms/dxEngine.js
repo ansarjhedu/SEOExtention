@@ -7,22 +7,14 @@ import {
   canonicalizeUrl 
 } from '../utils.js';
 
-// ============================================================================
-// PERFORMANCE: Globally pre-compiled Regex definitions
-// ============================================================================
 const GUID_PRODUCT_REGEX = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const KNOWN_BRANDS = [
   'yamaha', 'kawasaki', 'cfmoto', 'ktm', 'honda', 'suzuki', 'polaris', 'can-am', 'spyder', 'seadoo', 
   'sea-doo', 'skidoo', 'ski-doo', 'harley-davidson', 'indian', 'triumph', 'ducati', 'bmw', 'vespa', 'husqvarna'
 ];
 
-// ============================================================================
-// 1. DX1 LINK FILTERING (STRICT PARTS & MATRIX TRAP BLACKSHIELD)
-// ============================================================================
 export function shouldIgnoreLink(urlStr) {
   const urlLower = urlStr.toLowerCase();
-  
-  // 1. Explicit Directories to completely kill
   const ignorePatterns = [
     '/event', '/calendar', '/gallery', '/review', '/testimonial', 
     '/social', '/widget', '/forum', '/job', '/career', '/employment', 
@@ -35,25 +27,16 @@ export function shouldIgnoreLink(urlStr) {
 
   try {
     const pathname = new URL(urlStr).pathname.toLowerCase();
-    
-    // 2. The Deep-Parts Shield: Kills any link that goes DEEPER than the main /parts page.
-    // This blocks /parts/diagrams/123, but allows the top-level /parts.
     if (pathname.match(/^\/parts\/.+/)) return true;
-    
-    // 3. The Infinite Matrix Trap Shield: DX1 generates infinite permutations of models and years.
-    // This stops the spider from crawling endlessly into the catalog filters.
     if (pathname.includes('/model-list/') || pathname.includes('/catalogs/')) {
       const segments = pathname.split('/').filter(Boolean);
-      if (segments.length > 3) return true; // Kills deep routing like /Model-List/Yamaha/Motorcycles/2026
+      if (segments.length > 3) return true; 
     }
   } catch (e) {}
 
   return false;
 }
 
-// ============================================================================
-// 2. STRICT, MUTUALLY EXCLUSIVE URL CATEGORIZATION ROUTER
-// ============================================================================
 export function categorizeLink(urlStr, statusCode = 200) {
   let url;
   try { url = new URL(urlStr); } catch (e) { return { category: 'page', subCategory: 'static' }; }
@@ -62,12 +45,10 @@ export function categorizeLink(urlStr, statusCode = 200) {
   const pathname = url.pathname.toLowerCase();
   const pathSegments = pathname.split('/').filter(Boolean);
 
-  // TIER 1: Errors / 404 Dead Links (Highest Priority)
   if (statusCode === 404 || pathname.includes('/404') || pathname.includes('page-not-found')) {
     return { category: 'dead_link', subCategory: '404-error' };
   }
 
-  // TIER 2: Explicit Functional Content (Must catch BEFORE Brands/Products)
   if (pathname.match(/\/(blog|news|article|articles)/)) {
     return { category: 'blog', subCategory: 'article' };
   }
@@ -81,13 +62,11 @@ export function categorizeLink(urlStr, statusCode = 200) {
     return { category: 'page', subCategory: 'service-page' };
   }
 
-  // TIER 3: Strict Product Detail Pages (VDPs via DX1 GUID Signature)
   if (GUID_PRODUCT_REGEX.test(pathname)) {
     const isUsed = pathname.includes('pre-owned') || pathname.includes('used');
     return { category: 'product', subCategory: isUsed ? 'used-product' : 'new-product' };
   }
 
-  // TIER 4: Inventory Index Scanners
   if (pathname.match(/\/(search-inventory|inventory|all-inventory|vehicles|search)/) && !urlLower.includes('search.google')) {
     let subCategory = 'general-inventory';
     if (pathname.includes('/new')) subCategory = 'new-inventory';
@@ -95,19 +74,14 @@ export function categorizeLink(urlStr, statusCode = 200) {
     return { category: 'inventory', subCategory };
   }
 
-  // TIER 5: Brand Showrooms & Model Hubs (Safely isolated at the bottom)
   const hasBrandSegment = pathSegments.some(seg => KNOWN_BRANDS.includes(seg));
   if (pathname.match(/\/(brands?|showrooms?|manufacturer-models|oem-models|catalogs?|manufacturers?|model-list)/) || hasBrandSegment) {
     return { category: 'collection', subCategory: 'brand-directory' };
   }
 
-  // TIER 6: Safe Fallback
   return { category: 'page', subCategory: 'static' };
 }
 
-// ============================================================================
-// 3. DX1 SPECIFIC URL DETAIL EXTRACTION LOGIC
-// ============================================================================
 export function extractAutoDetails(urlStr) {
   const details = { year: '', brandName: '', modelName: '', vehicleType: 'Vehicle' };
   try {
@@ -150,9 +124,6 @@ export function extractAutoDetails(urlStr) {
   return details;
 }
 
-// ============================================================================
-// 4. DX1 CRAWLABLE PATH VALIDATION
-// ============================================================================
 export function isCrawlablePath(urlStr, currentDepth = 0) {
   if (currentDepth >= 4) return false;
   if (shouldIgnoreLink(urlStr)) return false;
@@ -169,7 +140,6 @@ export function isCrawlablePath(urlStr, currentDepth = 0) {
   try {
     const url = new URL(urlStr);
     const pathname = url.pathname.toLowerCase();
-    
     if (pathname === '/' || pathname === '') return true;
     return whitelistDirectories.some(dir => pathname.includes(dir));
   } catch (e) {
@@ -178,23 +148,60 @@ export function isCrawlablePath(urlStr, currentDepth = 0) {
 }
 
 // ============================================================================
-// 5. DX1 METADATA EXTRACTION
+// 4. DEEP VDP EXTRACTION (Strict Key-Value Parsing for DX1 - "Total Price" Fix)
 // ============================================================================
 export function extractPageMetadata(html) {
   const $ = cheerio.load(html);
+  
   let extractedPrice = '';
+  let priceType = '';
+  let msrp = '';
+  let retailPrice = '';
+  let salePrice = '';
+  let monthlyPayment = '';
+  let specs = '';
+  let year = '', brandName = '', modelName = '', vehicleType = 'Vehicle';
+  
+  const specsRaw = $('.specs, .specifications, #specs, table.spec, .details-container, .vehicle-features, .model-specs').text().replace(/\s+/g, ' ').trim();
+  if (specsRaw) specs = specsRaw.substring(0, 1500); 
+
+  // STRICT TABULAR PRICE PARSING (Eliminates Rebate/Fee bugs)
+  $('tr, li, dt, .price-row, .price-line, dl, .pricing-detail, div').each((_, el) => {
+      const rowText = $(el).text().replace(/\s+/g, ' ').trim().toLowerCase();
+      
+      if (rowText.length > 120 || rowText.includes('ranging from') || rowText.includes('starting at')) return;
+
+      // 🚨 FIX: Explicitly block DX1 itemized deductions/fees from being read as the main price
+      if (rowText.includes('rebate') || rowText.includes('fee') || rowText.includes('discount') || rowText.includes('savings') || rowText.includes('down payment')) return;
+
+      const priceMatch = rowText.match(/\$\s*([1-9]\d{0,2}(?:,\d{3})*(?:\.\d{2})?)\b/);
+      if (priceMatch) {
+          const amt = `$${priceMatch[1]}`;
+          
+          if (rowText.includes('total price') || rowText.includes('final price')) {
+              salePrice = amt; // This overrides everything else as the final bottom line
+          } else if (rowText.includes('sale price') || rowText.includes('our price') || rowText.includes('special')) {
+              if (!salePrice) salePrice = amt; 
+          } else if (rowText.includes('msrp')) {
+              msrp = amt;
+          } else if (rowText.includes('retail price') || rowText.includes('selling price') || rowText.match(/^price\s*\$/)) {
+              retailPrice = amt;
+          } else if (rowText.includes('/mo') || rowText.includes('per month') || rowText.includes('a month')) {
+              monthlyPayment = `${amt}/mo`;
+          }
+      }
+  });
+
+  let metaDescription = $('meta[name="description"]').attr('content') || '';
 
   $('script[type="application/ld+json"]').each((_, el) => {
-    if (extractedPrice) return;
     try {
       const data = JSON.parse($(el).html());
       const items = Array.isArray(data) ? data : [data];
       for (const item of items) {
         if (item['@type'] === 'Product' || item['@type'] === 'Vehicle') {
-          if (item.offers && item.offers.price) {
-            if (parseFloat(item.offers.price) > 0) {
-                extractedPrice = `$${Number(item.offers.price).toLocaleString('en-US', {minimumFractionDigits: 2})}`;
-            }
+          if (item.offers && item.offers.price && parseFloat(item.offers.price) > 0 && !msrp) {
+              msrp = `$${Number(item.offers.price).toLocaleString('en-US', {minimumFractionDigits: 2})}`;
           }
         }
       }
@@ -203,45 +210,41 @@ export function extractPageMetadata(html) {
 
   $('script, style, noscript, iframe, svg').remove();
 
-  if (!extractedPrice) {
-    const priceSelectors = ['.price', '[class*="price-value"]', '.sale-price', '.msrp', '.regular-price', '[data-price]', '.veh-price'];
-    for (const selector of priceSelectors) {
-      const text = $(selector).first().text().replace(/\s+/g, ' ').trim();
-      const priceMatch = text.match(/\$\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})?)/);
-      if (priceMatch) {
-        extractedPrice = `$${priceMatch[1]}`;
-        break;
-      }
-    }
+  if (salePrice) {
+      extractedPrice = salePrice;
+      priceType = 'Total / Sale Price';
+  } else if (retailPrice) {
+      extractedPrice = retailPrice;
+      priceType = 'Retail Price';
+  } else if (msrp) {
+      extractedPrice = msrp;
+      priceType = 'MSRP';
   }
 
   if (!extractedPrice) {
-    const bodyText = $('body').text();
-    const match = bodyText.match(/(?:price|msrp|our price|sale price)\s*:?\s*\$?\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})?)/i);
-    if (match && parseFloat(match[1].replace(/,/g, '')) > 0) {
-      extractedPrice = `$${match[1]}`;
-    }
+      $('[class*="price" i], [id*="price" i], .veh-price, .regular-price').each((_, el) => {
+          if (extractedPrice) return;
+          const text = $(el).text().replace(/\s+/g, ' ').trim();
+          if (text.length > 50) return; 
+          const priceMatch = text.match(/\$\s*([1-9]\d{0,2}(?:,\d{3})*(?:\.\d{2})?)\b/);
+          if (priceMatch) {
+              extractedPrice = `$${priceMatch[1]}`;
+              priceType = 'Listed Price';
+          }
+      });
   }
 
-  let year = '', brandName = '', modelName = '', vehicleType = '';
   const vdpHeader = $('h1, .vdp-title, [class*="vehicle-title"]').first().text().replace(/\s+/g, ' ').trim();
-  
   if (vdpHeader) {
     const yearMatch = vdpHeader.match(/\b(19[8-9]\d|20[0-2]\d)\b/);
     if (yearMatch) year = yearMatch[1];
     const lowerHeader = vdpHeader.toLowerCase();
-    
     for (const b of KNOWN_BRANDS) {
        if (lowerHeader.includes(` ${b} `) || lowerHeader.startsWith(`${b} `)) {
           brandName = b.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
-          
           const brandIndex = lowerHeader.indexOf(b);
           let rawModel = vdpHeader.substring(brandIndex + b.length).trim();
-          
-          if (year) {
-              const yearRegex = new RegExp(`\\b${year}\\b`, 'i');
-              rawModel = rawModel.replace(yearRegex, '').trim();
-          }
+          if (year) rawModel = rawModel.replace(new RegExp(`\\b${year}\\b`, 'i'), '').trim();
           rawModel = rawModel.replace(/new|used|for sale/ig, '').trim();
           if (rawModel) modelName = rawModel;
           break;
@@ -249,25 +252,83 @@ export function extractPageMetadata(html) {
     }
   }
 
-  return { price: extractedPrice, year, brandName, modelName, vehicleType };
+  // 🚨 FIX: Collapse output to just 2 main price columns to clean up Excel presentation
+  return { 
+      price: extractedPrice, 
+      priceType: priceType, 
+      msrp: msrp || retailPrice, // Mapped to MSRP/Retail column
+      retailPrice: '',           // Blanked out to avoid confusing the client
+      sellingPrice: '',          // Blanked out to avoid confusing the client
+      salePrice: salePrice,      // Mapped to Sale/Total column
+      monthlyPayment, specs, year, brandName, modelName, vehicleType, metaDescription 
+  };
 }
 
 // ============================================================================
-// 6. DX1 ENTITY & NAP DATA EXTRACTION
+// 6. DX1 ENTITY, NAP, & DEEP TEXT EXTRACTION (URL Tracing Fix)
 // ============================================================================
 export function extractDealershipProfile(html, currentUrl) {
   const $ = cheerio.load(html);
+  
+  // 🚨 FIX: Initialize booleans as empty strings so they can accept URLs
   const profile = {
     dealershipName: '', legalCorporateName: '', dbaAlternateName: '', streetAddress: '',
     city: '', state: '', zipCode: '', telephoneMainLine: '', telephoneFax: '', 
     latitude: '', longitude: '', googleBusinessUrl: '', logoUrl: '', platform: 'DX1',
     socialLinks: { facebook: '', instagram: '', youtube: '', twitter: '' },
-    requiredUrls: { parts: '', service: '', finance: '' },
+    requiredUrls: { parts: '', service: '', finance: '', bodyShop: '', careers: '' }, 
     actionUrls: { serviceScheduler: '', partsRequest: '', tradeIn: '', testRide: '', staff: '', blog: '', events: '', testimonials: '', googleReviews: '' },
     departmentPhones: { sales: '', service: '', parts: '' },
     storeHours: { monday: '', tuesday: '', wednesday: '', thursday: '', friday: '', saturday: '', sunday: '' },
-    serviceHours: { monday: '', tuesday: '', wednesday: '', thursday: '', friday: '', saturday: '', sunday: '' }
+    serviceHours: { monday: '', tuesday: '', wednesday: '', thursday: '', friday: '', saturday: '', sunday: '' }, 
+    financeDetails: { lendingPartners: [], programsOffered: [] },
+    serviceDetails: { tiers: [], claims: [], brandsServiced: [], nonFranchiseAccepted: '', unitAgeLimitations: '' },
+    partsDetails: { oemSupport: '', aftermarketSupport: '' },
+    bodyShopDetails: { servicesOffered: [], paintServices: '' }
   };
+
+  const pageText = $('body').text().replace(/\s+/g, ' ').toLowerCase();
+  const currentUrlLower = currentUrl.toLowerCase();
+
+  if (currentUrlLower.includes('financ') || currentUrlLower.includes('credit')) {
+      const lenders = ['sheffield', 'synchrony', 'octane', 'roadrunner', 'eaglemark', 'motolease', 'first community', 'freedom', 'yamaha financial', 'polaris financial'];
+      lenders.forEach(lender => {
+          if (pageText.includes(lender) && !profile.financeDetails.lendingPartners.includes(lender)) {
+              profile.financeDetails.lendingPartners.push(lender.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '));
+          }
+      });
+  }
+
+  if (currentUrlLower.includes('service')) {
+      const repairs = ['tune-up', 'winterization', 'oil change', 'tire installation', 'tire repair', 'diagnostics', 'engine rebuild', 'maintenance', 'inspection', 'battery', 'brake', 'warranty', 'recall'];
+      repairs.forEach(repair => {
+          if (pageText.includes(repair) && !profile.serviceDetails.claims.includes(repair)) {
+              profile.serviceDetails.claims.push(repair.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '));
+          }
+      });
+
+      // 🚨 FIX: Save the actual URL where the claim was found instead of just "true"
+      if (pageText.includes('service all makes') || pageText.includes('work on all brands') || pageText.includes('any brand')) {
+          if (!profile.serviceDetails.nonFranchiseAccepted) profile.serviceDetails.nonFranchiseAccepted = currentUrl;
+      }
+      const ageMatch = pageText.match(/.{0,30}\b(?:years or older|newer than|older than 10)\b.{0,30}/i);
+      if (ageMatch && !profile.serviceDetails.unitAgeLimitations) profile.serviceDetails.unitAgeLimitations = ageMatch[0].trim();
+  }
+
+  if (currentUrlLower.includes('parts') || currentUrlLower.includes('accessories')) {
+      if (pageText.includes('oem') || pageText.includes('original equipment')) {
+          if (!profile.partsDetails.oemSupport) profile.partsDetails.oemSupport = currentUrl;
+      }
+      if (pageText.includes('aftermarket') || pageText.includes('accessories') || pageText.includes('apparel') || pageText.includes('gear')) {
+          if (!profile.partsDetails.aftermarketSupport) profile.partsDetails.aftermarketSupport = currentUrl;
+      }
+  }
+
+  if (currentUrlLower.includes('body') || currentUrlLower.includes('collision')) {
+      if (pageText.includes('paint') || pageText.includes('color match')) {
+          if (!profile.bodyShopDetails.paintServices) profile.bodyShopDetails.paintServices = currentUrl;
+      }
+  }
 
   $('header img, img.logo, img[id*="logo"], a.navbar-brand img').each((_, el) => {
     if (!profile.logoUrl) {
@@ -381,27 +442,35 @@ export function extractDealershipProfile(html, currentUrl) {
     if (!targetLink || targetLink.trim() === '' || targetLink.includes('javascript:void(0)')) return;
 
     const buildUrl = (path) => { try { return new URL(path, currentUrl).toString(); } catch { return path; } };
+    
+    let absoluteLink = safeHref;
+    if (href.startsWith('/') || href.startsWith('.')) {
+         absoluteLink = buildUrl(href).toLowerCase();
+    }
 
     if (targetLink.includes('facebook.com/') && !profile.socialLinks.facebook) profile.socialLinks.facebook = href;
     if (targetLink.includes('instagram.com/') && !profile.socialLinks.instagram) profile.socialLinks.instagram = href;
     if (targetLink.includes('youtube.com/') && !profile.socialLinks.youtube) profile.socialLinks.youtube = href;
     if ((targetLink.includes('twitter.com/') || targetLink.includes('x.com/')) && !profile.socialLinks.twitter) profile.socialLinks.twitter = href;
 
-    if ((targetLink.includes('/parts') || targetLink.includes('parts-department')) && !profile.requiredUrls.parts) profile.requiredUrls.parts = buildUrl(href);
-    if ((targetLink.includes('/service') || targetLink.includes('service-department')) && !profile.requiredUrls.service) profile.requiredUrls.service = buildUrl(href);
-    if ((targetLink.includes('/finance') || targetLink.includes('/credit')) && !profile.requiredUrls.finance) profile.requiredUrls.finance = buildUrl(href);
+    if ((absoluteLink.includes('/parts') || absoluteLink.includes('parts-department')) && !profile.requiredUrls.parts) profile.requiredUrls.parts = buildUrl(href);
+    if ((absoluteLink.includes('/service') || absoluteLink.includes('service-department')) && !profile.requiredUrls.service) profile.requiredUrls.service = buildUrl(href);
+    if ((absoluteLink.includes('/finance') || absoluteLink.includes('/credit')) && !profile.requiredUrls.finance) profile.requiredUrls.finance = buildUrl(href);
+    if ((absoluteLink.includes('body-shop') || absoluteLink.includes('collision')) && !profile.requiredUrls.bodyShop) profile.requiredUrls.bodyShop = buildUrl(href);
+    if ((absoluteLink.includes('career') || absoluteLink.includes('employment')) && !profile.requiredUrls.careers) profile.requiredUrls.careers = buildUrl(href);
 
-    if ((targetLink.includes('schedule') || targetLink.includes('appointment')) && !profile.actionUrls.serviceScheduler) profile.actionUrls.serviceScheduler = buildUrl(href);
-    if (targetLink.includes('parts-request') && !profile.actionUrls.partsRequest) profile.actionUrls.partsRequest = buildUrl(href);
-    if ((targetLink.includes('value-your-trade') || targetLink.includes('trade-in')) && !profile.actionUrls.tradeIn) profile.actionUrls.tradeIn = buildUrl(href);
-    if ((targetLink.includes('test-ride') || targetLink.includes('schedule-ride')) && !profile.actionUrls.testRide) profile.actionUrls.testRide = buildUrl(href);
+    if ((absoluteLink.includes('schedule') || absoluteLink.includes('appointment')) && !profile.actionUrls.serviceScheduler) profile.actionUrls.serviceScheduler = buildUrl(href);
+    if (absoluteLink.includes('parts-request') && !profile.actionUrls.partsRequest) profile.actionUrls.partsRequest = buildUrl(href);
+    if ((absoluteLink.includes('value-your-trade') || absoluteLink.includes('trade-in')) && !profile.actionUrls.tradeIn) profile.actionUrls.tradeIn = buildUrl(href);
+    if ((absoluteLink.includes('test-ride') || absoluteLink.includes('schedule-ride')) && !profile.actionUrls.testRide) profile.actionUrls.testRide = buildUrl(href);
     
-    const isStaffLink = targetLink.includes('/staff') || targetLink.includes('/crew') || targetLink.includes('/our-team') || targetLink.includes('/meet-the-team') || targetLink.includes('/dealership-staff') || anchorText.includes('meet the team') || anchorText.includes('our crew') || anchorText === 'staff' || anchorText === 'our team';
-    if (isStaffLink && !profile.actionUrls.staff && !targetLink.includes('join-our-team')) profile.actionUrls.staff = buildUrl(href);
+    const isStaffLink = absoluteLink.includes('/staff') || absoluteLink.includes('/crew') || absoluteLink.includes('/our-team') || absoluteLink.includes('/meet-the-team') || absoluteLink.includes('/dealership-staff') || anchorText.includes('meet the team') || anchorText.includes('our crew') || anchorText === 'staff' || anchorText === 'our team';
+    if (isStaffLink && !profile.actionUrls.staff && !absoluteLink.includes('join-our-team')) profile.actionUrls.staff = buildUrl(href);
 
-    if ((targetLink.includes('/blog') || targetLink.includes('/news') || targetLink.includes('/articles')) && !profile.actionUrls.blog) profile.actionUrls.blog = buildUrl(href);
-    if ((targetLink.includes('/events') || targetLink.includes('/calendar')) && !profile.actionUrls.events) profile.actionUrls.events = buildUrl(href);
-    
+    if ((absoluteLink.includes('/blog') || absoluteLink.includes('/news') || absoluteLink.includes('/articles')) && !profile.actionUrls.blog) profile.actionUrls.blog = buildUrl(href);
+    if ((absoluteLink.includes('/events') || absoluteLink.includes('/calendar')) && !profile.actionUrls.events) profile.actionUrls.events = buildUrl(href);
+    if ((absoluteLink.includes('testimonial') || absoluteLink.includes('review')) && !profile.actionUrls.testimonials) profile.actionUrls.testimonials = buildUrl(href);
+
     if (
       safeHref.includes('search.google.com/local/writereview') || 
       safeHref.includes('search.google.com/local/reviews') || 
@@ -424,12 +493,42 @@ export function extractDealershipProfile(html, currentUrl) {
         profile.actionUrls.googleReviews = href || 'Widget Script Integrated';
       }
     }
-  });
+
+    if (absoluteLink.includes('maps.google.com') || absoluteLink.includes('google.com/maps')) {
+        if (!profile.googleBusinessUrl) profile.googleBusinessUrl = href;
+        const geoMatch1 = href.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+        const geoMatch2 = href.match(/ll=(-?\d+\.\d+),(-?\d+\.\d+)/);
+        const geoMatch = geoMatch1 || geoMatch2;
+        if (geoMatch) {
+            profile.latitude = geoMatch[1];
+            profile.longitude = geoMatch[2];
+        }
+    }
+  }); 
+
+  if (!profile.actionUrls.googleReviews) {
+    $('iframe').each((_, el) => {
+      const src = $(el).attr('src') || '';
+      const lowerSrc = src.toLowerCase();
+      if (
+        lowerSrc.includes('elfsight.com') || 
+        lowerSrc.includes('trustindex.io') || 
+        lowerSrc.includes('embedsocial.com') || 
+        lowerSrc.includes('reviews.io') || 
+        lowerSrc.includes('socius') ||
+        (lowerSrc.includes('review') && !lowerSrc.includes('youtube.com')) 
+      ) {
+        profile.actionUrls.googleReviews = `Review iFrame Detected: ${src}`;
+      }
+    });
+  }
 
   if (!profile.actionUrls.googleReviews) {
     $('script').each((_, el) => {
       const src = $(el).attr('src')?.toLowerCase() || '';
-      if (src.includes('elfsight.com') || src.includes('podium.com') || src.includes('birdeye.com')) profile.actionUrls.googleReviews = `Widget Script Installed (${src})`;
+      if (src.includes('elfsight.com') || src.includes('podium.com') || src.includes('birdeye.com') || src.includes('broadly.com')) {
+         profile.actionUrls.googleReviews = `Widget Script Installed (${src})`;
+      }
     });
   }
 
@@ -445,9 +544,6 @@ export function extractDealershipProfile(html, currentUrl) {
   return profile;
 }
 
-// ============================================================================
-// 7. URL DEDUPLICATION AND LINK EXTRACTION
-// ============================================================================
 export function parseAndExtractLinks(html, currentUrl, targetUrl, targetDomain, session, currentDepth) {
   const $ = cheerio.load(html);
   const elements = $('a').toArray();
@@ -480,7 +576,6 @@ export function parseAndExtractLinks(html, currentUrl, targetUrl, targetDomain, 
         anchorText = innerImg.length ? $(innerImg).attr('alt')?.trim() || '[Image Link]' : '[No Text]';
       }
 
-      // Drop query parameters for deduplication key so ?page=1 doesn't duplicate
       let dedupeKey = cleanUrl.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '').toLowerCase();
       if (!dedupeKey.includes('page=') && !dedupeKey.includes('p=')) {
           dedupeKey = dedupeKey.split('?')[0]; 
@@ -499,12 +594,12 @@ export function parseAndExtractLinks(html, currentUrl, targetUrl, targetDomain, 
           category,
           subCategory,
           statusCode: 200,
-          price: '',
+          price: '', priceType: '', msrp: '', retailPrice: '', salePrice: '', sellingPrice: '', monthlyPayment: '', specs: '',
           year: autoDetails.year || '',
           brandName: autoDetails.brandName || '',
           modelName: autoDetails.modelName || '',
           vehicleType: autoDetails.vehicleType || 'Vehicle',
-          verificationStatus: category === 'product' ? 'missing' : 'not_applicable'
+          verificationStatus: category === 'product' ? 'MISSING' : 'VERIFIED'
         });
 
         if (category !== 'product' && isCrawlablePath(cleanUrl, currentDepth)) {

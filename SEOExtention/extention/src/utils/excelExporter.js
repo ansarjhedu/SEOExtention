@@ -20,135 +20,139 @@ export const exportCrawlDataToExcel = (groupedData, domainName, profileData) => 
     worksheet['!cols'] = colWidths;
   };
 
-  // ============================================================================
-  // 1. ENTITY & QA DATA SHEET
-  // ============================================================================
-  const qaRows = [];
-  
-  const pushEntity = (field, value, evidence = 'Extracted via LD-JSON / DOM', customTier = null) => {
-    if (value && String(value).trim() !== '') {
-      qaRows.push({ 'Field': field, 'Value': value, 'Tier': customTier || 'VERIFIED', 'Evidence': evidence });
-    } else {
-      qaRows.push({ 'Field': field, 'Value': 'MISSING', 'Tier': 'MISSING', 'Evidence': '' });
-    }
+  const getStatus = (val) => {
+    if (!val || val === 'MISSING' || val === '' || val === '0%') return 'MISSING';
+    return 'VERIFIED';
   };
 
-  // --- Base Business Info ---
+  // ============================================================================
+  // TAB 1: ENTITY, NAP & GBP DATA
+  // ============================================================================
+  const qaRows = [];
+  const pushEntity = (field, value, customTier = null, evidence = 'Extracted via DOM') => {
+    const safeVal = value && String(value).trim() !== '' ? value : 'MISSING';
+    const tier = customTier || getStatus(safeVal);
+    qaRows.push({ 'Data Field': field, 'Extracted Value': safeVal, 'Verification Status': tier, 'Source/Evidence': evidence });
+  };
+
   pushEntity('Dealership Name', profileData?.dealershipName);
-  pushEntity('Legal Corporate Name', profileData?.legalCorporateName, 'LD-JSON / Footer Copyright Regex');
-  pushEntity('Address', [profileData?.streetAddress, profileData?.city, profileData?.state, profileData?.zipCode].filter(Boolean).join(', '));
-  pushEntity('Telephone Main Line', profileData?.telephoneMainLine);
-  pushEntity('Fax Number Line', profileData?.telephoneFax, 'DOM Footprint Regex Search');
-  pushEntity('Website Platform', profileData?.platform, 'Deep Heuristic Source Scan');
-  pushEntity('Logo URL', profileData?.logoUrl, 'Header Image Tag');
-  pushEntity('Google Business URL', profileData?.googleBusinessUrl, 'Map iFrame Source');
+  pushEntity('Legal / Corporate Name', profileData?.legalCorporateName, null, 'Footer / Terms Page');
+  pushEntity('Physical Address', [profileData?.streetAddress, profileData?.city, profileData?.state, profileData?.zipCode].filter(Boolean).join(', '));
+  pushEntity('Main Phone Number', profileData?.telephoneMainLine);
+  pushEntity('Department Phone (Sales)', profileData?.departmentPhones?.sales);
+  pushEntity('Department Phone (Service)', profileData?.departmentPhones?.service);
+  pushEntity('Department Phone (Parts)', profileData?.departmentPhones?.parts);
+  pushEntity('Website Platform', profileData?.platform, null, 'Source Code Fingerprint');
+  pushEntity('Logo URL', profileData?.logoUrl);
+  pushEntity('Google Business Profile URL', profileData?.googleBusinessUrl, null, 'Map Embed Source');
+  pushEntity('Google Maps URL', profileData?.googleBusinessUrl, 'INFERRED', 'Derived from GBP Data');
+  pushEntity('GPS Latitude', profileData?.latitude, 'INFERRED', 'Map Embed Coordinates');
+  pushEntity('GPS Longitude', profileData?.longitude, 'INFERRED', 'Map Embed Coordinates');
+  pushEntity('Google Review URL', profileData?.actionUrls?.googleReviews);
   
-  // Lat/Long are often pulled from iFrames, so we flag them as INFERRED per the prompt rules
-  pushEntity('GPS Latitude', profileData?.latitude, 'Map iFrame Regex', 'INFERRED');
-  pushEntity('GPS Longitude', profileData?.longitude, 'Map iFrame Regex', 'INFERRED');
+  // Store Hours
+  ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'].forEach(d => {
+      const day = d.charAt(0).toUpperCase() + d.slice(1);
+      pushEntity(`Sales Hours — ${day}`, profileData?.storeHours?.[d]);
+      pushEntity(`Service Hours — ${day}`, profileData?.serviceHours?.[d]);
+  });
 
-  // --- Department Phones ---
-  pushEntity('Phone: Sales', profileData?.departmentPhones?.sales, 'DOM Nearby Text Match');
-  pushEntity('Phone: Service', profileData?.departmentPhones?.service, 'DOM Nearby Text Match');
-  pushEntity('Phone: Parts', profileData?.departmentPhones?.parts, 'DOM Nearby Text Match');
+  // Action / Trust URLs
+  pushEntity('Social Profile: Facebook', profileData?.socialLinks?.facebook);
+  pushEntity('Social Profile: Instagram', profileData?.socialLinks?.instagram);
+  pushEntity('Social Profile: YouTube', profileData?.socialLinks?.youtube);
+  pushEntity('Social Profile: Twitter/X', profileData?.socialLinks?.twitter);
+  pushEntity('About / Our Dealership Page URL', profileData?.actionUrls?.staff || groupedData?.staticPages?.find(l => l.text.toLowerCase().includes('about'))?.url);
+  pushEntity('Contact Page URL', groupedData?.staticPages?.find(l => l.text.toLowerCase().includes('contact'))?.url);
+  pushEntity('Careers / Employment Page URL', profileData?.requiredUrls?.careers);
+  pushEntity('Reviews / Testimonials Page URL', profileData?.actionUrls?.testimonials);
 
-  // --- Required Authority URLs ---
-  pushEntity('Required URL: Parts', profileData?.requiredUrls?.parts);
-  pushEntity('Required URL: Service', profileData?.requiredUrls?.service);
-  pushEntity('Required URL: Finance', profileData?.requiredUrls?.finance);
-
-  // --- Action / Conversion URLs ---
-  pushEntity('Action URL: Service Scheduler', profileData?.actionUrls?.serviceScheduler);
-  pushEntity('Action URL: Parts Request', profileData?.actionUrls?.partsRequest);
-  pushEntity('Action URL: Trade-In / Sell', profileData?.actionUrls?.tradeIn);
-  pushEntity('Action URL: Test Ride', profileData?.actionUrls?.testRide);
-  pushEntity('Action URL: Google Reviews', profileData?.actionUrls?.googleReviews, 'Google Search/Maps URL Intercept');
-
-  // --- Trust / Content URLs ---
-  pushEntity('Content URL: Staff / Team', profileData?.actionUrls?.staff);
-  pushEntity('Content URL: Blog / News', profileData?.actionUrls?.blog);
-  pushEntity('Content URL: Events', profileData?.actionUrls?.events);
-  pushEntity('Content URL: Testimonials', profileData?.actionUrls?.testimonials);
-
-  // --- Social Links ---
-  pushEntity('Social: Facebook', profileData?.socialLinks?.facebook, 'DOM Anchor Search');
-  pushEntity('Social: Instagram', profileData?.socialLinks?.instagram, 'DOM Anchor Search');
-  pushEntity('Social: YouTube', profileData?.socialLinks?.youtube, 'DOM Anchor Search');
-  pushEntity('Social: Twitter/X', profileData?.socialLinks?.twitter, 'DOM Anchor Search');
-
-  // --- Store / Sales Hours ---
-  pushEntity('Store Hours: Monday', profileData?.storeHours?.monday, 'Sales Context DOM Block');
-  pushEntity('Store Hours: Tuesday', profileData?.storeHours?.tuesday, 'Sales Context DOM Block');
-  pushEntity('Store Hours: Wednesday', profileData?.storeHours?.wednesday, 'Sales Context DOM Block');
-  pushEntity('Store Hours: Thursday', profileData?.storeHours?.thursday, 'Sales Context DOM Block');
-  pushEntity('Store Hours: Friday', profileData?.storeHours?.friday, 'Sales Context DOM Block');
-  pushEntity('Store Hours: Saturday', profileData?.storeHours?.saturday, 'Sales Context DOM Block');
-  pushEntity('Store Hours: Sunday', profileData?.storeHours?.sunday, 'Sales Context DOM Block');
-
-  // --- Service / Parts Hours ---
-  pushEntity('Service Hours: Monday', profileData?.serviceHours?.monday, 'Service Context DOM Block');
-  pushEntity('Service Hours: Tuesday', profileData?.serviceHours?.tuesday, 'Service Context DOM Block');
-  pushEntity('Service Hours: Wednesday', profileData?.serviceHours?.wednesday, 'Service Context DOM Block');
-  pushEntity('Service Hours: Thursday', profileData?.serviceHours?.thursday, 'Service Context DOM Block');
-  pushEntity('Service Hours: Friday', profileData?.serviceHours?.friday, 'Service Context DOM Block');
-  pushEntity('Service Hours: Saturday', profileData?.serviceHours?.saturday, 'Service Context DOM Block');
-  pushEntity('Service Hours: Sunday', profileData?.serviceHours?.sunday, 'Service Context DOM Block');
-
-  // --- Inventory Strategy & Metrics ---
-  const totalVehicles = (profileData?.inventoryMetrics?.newCount || 0) + (profileData?.inventoryMetrics?.usedCount || 0);
-  
-  pushEntity('Total Vehicles Found', totalVehicles > 0 ? totalVehicles : '0', 'Calculated Product URLs', 'INFERRED');
-  pushEntity('New Inventory %', profileData?.inventoryMetrics?.newPercentage || '0%', 'Calculated Mix', 'INFERRED');
-  pushEntity('Used Inventory %', profileData?.inventoryMetrics?.usedPercentage || '0%', 'Calculated Mix', 'INFERRED');
-  
-  pushEntity(
-    'Priority Brands (Top 5)', 
-    profileData?.inventoryMetrics?.topBrands && profileData.inventoryMetrics.topBrands.length > 0 
-      ? profileData.inventoryMetrics.topBrands.join(', ') 
-      : 'None Detected', 
-    'Most Frequent Product Brands', 
-    'INFERRED'
-  );
-  
-  pushEntity(
-    'Priority Categories (Top 3)', 
-    profileData?.inventoryMetrics?.topCategories && profileData.inventoryMetrics.topCategories.length > 0 
-      ? profileData.inventoryMetrics.topCategories.join(', ') 
-      : 'None Detected', 
-    'Most Frequent Vehicle Types', 
-    'INFERRED'
-  );
-
-  const wsQA = XLSX.utils.json_to_sheet(qaRows);
-  autoSizeColumns(wsQA, qaRows);
-  XLSX.utils.book_append_sheet(wb, wsQA, 'Entity & QA Data');
+  const wsEntity = XLSX.utils.json_to_sheet(qaRows);
+  autoSizeColumns(wsEntity, qaRows);
+  XLSX.utils.book_append_sheet(wb, wsEntity, 'Entity & QA Data');
 
   // ============================================================================
-  // 2. VEHICLE PRODUCTS SHEET
+  // TAB 2: SHOWROOMS & BRANDS
   // ============================================================================
-  const productRows = [];
-  const addProductVehicles = (vehicles, conditionLabel) => {
-    (vehicles || []).forEach(link => {
-      const hasPrice = link.price && link.price !== 'Missing' && link.price !== '';
-      const finalStatus = hasPrice ? 'VERIFIED' : 'MISSING';
-
-      productRows.push({
-        'URL': link.url || '',
-        'Anchor Text': link.text || '',
-        'Condition': conditionLabel,
-        'Year': link.year || 'N/A',
+  const brandRows = [];
+  const processShowrooms = (links, type) => {
+    (links || []).forEach(link => {
+      brandRows.push({
         'Brand Name': link.brandName || 'N/A',
-        'Model Name': link.modelName || 'N/A',
-        'Vehicle Type': link.vehicleType || 'Vehicle',
-        'Price': link.price || 'Contact Dealer',
-        'Verification Status': finalStatus
+        'Brand / Showroom Page URL': link.url,
+        'Parent Manufacturer': 'INFERRED', // Will require cross-reference dictionary later
+        'Product Line / Category': link.vehicleType || 'N/A',
+        'Anchor / Link Text': link.text,
+        'Page Type': type,
+        'Verification Status': 'VERIFIED'
       });
     });
   };
+  processShowrooms(groupedData?.collections?.brandDirectories, 'Brand Directory');
+  processShowrooms(groupedData?.collections?.brandModelLists, 'Model List');
+  
+  if (brandRows.length > 0) {
+    const wsBrands = XLSX.utils.json_to_sheet(brandRows);
+    autoSizeColumns(wsBrands, brandRows);
+    XLSX.utils.book_append_sheet(wb, wsBrands, 'Showrooms & Brands');
+  }
 
-  addProductVehicles(groupedData?.inventory?.newInventory?.vehicles, 'New');
-  addProductVehicles(groupedData?.inventory?.usedInventory?.vehicles, 'Used');
-  addProductVehicles(groupedData?.inventory?.generalInventory?.vehicles, 'General');
+  // ============================================================================
+  // TAB 3: COLLECTION / CATEGORY (INVENTORY HUB) PAGES
+  // ============================================================================
+  const hubRows = [];
+  const processHubs = (links, type, condition) => {
+    (links || []).forEach(link => {
+      hubRows.push({
+        'Collection Page URL': link.url,
+        'Anchor Text': link.text,
+        'Collection Type': type,
+        'Brand Tag': link.brandName || 'Mixed/All',
+        'Condition': condition,
+        'Verification Status': 'VERIFIED'
+      });
+    });
+  };
+  processHubs(groupedData?.inventory?.newInventory?.mainLinks, 'New Inventory Hub', 'New');
+  processHubs(groupedData?.inventory?.usedInventory?.mainLinks, 'Used Inventory Hub', 'Used');
+  processHubs(groupedData?.inventory?.generalInventory?.mainLinks, 'General Inventory Hub', 'All');
+
+  if (hubRows.length > 0) {
+    const wsHubs = XLSX.utils.json_to_sheet(hubRows);
+    autoSizeColumns(wsHubs, hubRows);
+    XLSX.utils.book_append_sheet(wb, wsHubs, 'Collection Pages');
+  }
+
+  // ============================================================================
+  // TAB 4: VEHICLE PRODUCTS & PRICING
+  // ============================================================================
+  const productRows = [];
+  const addProducts = (vehicles, conditionLabel) => {
+    (vehicles || []).forEach(link => {
+      const hasPrice = link.price && link.price !== 'Missing' && link.price !== '';
+      productRows.push({
+        'Product Detail Page URL': link.url || '',
+        'Anchor / Title Text': link.text || '',
+        'Condition': conditionLabel,
+        'Year': link.year || 'MISSING',
+        'Brand': link.brandName || 'MISSING',
+        'Model Name': link.modelName || 'MISSING',
+        'Vehicle / Product Type': link.vehicleType || 'Vehicle',
+        'Price (as listed)': link.price || 'MISSING',
+        'Price Tag / Type': link.priceType || 'MISSING',
+        'MSRP': link.msrp || 'MISSING',
+        'Retail Price': link.retailPrice || 'MISSING', // 🚨 NEW
+        'Sale Price': link.salePrice || 'MISSING',
+        'Selling Price': link.sellingPrice || 'MISSING', // 🚨 NEW
+        'Monthly Payment / Financing Price': link.monthlyPayment || 'MISSING',
+        'Info & Specifications': link.specs || 'MISSING',
+        'Verification Status': hasPrice || link.modelName !== 'MISSING' ? 'VERIFIED' : 'MISSING'
+      });
+    });
+  };
+  addProducts(groupedData?.inventory?.newInventory?.vehicles, 'New');
+  addProducts(groupedData?.inventory?.usedInventory?.vehicles, 'Used');
+  addProducts(groupedData?.inventory?.generalInventory?.vehicles, 'General');
 
   if (productRows.length > 0) {
     const wsProd = XLSX.utils.json_to_sheet(productRows);
@@ -157,101 +161,117 @@ export const exportCrawlDataToExcel = (groupedData, domainName, profileData) => 
   }
 
   // ============================================================================
-  // 3. INVENTORY COLLECTIONS SHEET
+  // TAB 5: SERVICE DEPARTMENT
   // ============================================================================
-  const inventoryRows = [];
-  const addInventoryMainLinks = (mainLinks, conditionLabel) => {
-    (mainLinks || []).forEach(link => {
-      inventoryRows.push({
-        'URL': link.url || '',
-        'Anchor Text': link.text || '',
-        'Condition Category': conditionLabel,
-        'Brand Tag': link.brandName || 'N/A'
-      });
-    });
-  };
-
-  addInventoryMainLinks(groupedData?.inventory?.newInventory?.mainLinks, 'New Inventory Hub');
-  addInventoryMainLinks(groupedData?.inventory?.usedInventory?.mainLinks, 'Used Inventory Hub');
-  addInventoryMainLinks(groupedData?.inventory?.generalInventory?.mainLinks, 'General Inventory Hub');
-
-  if (inventoryRows.length > 0) {
-    const wsInv = XLSX.utils.json_to_sheet(inventoryRows);
-    autoSizeColumns(wsInv, inventoryRows);
-    XLSX.utils.book_append_sheet(wb, wsInv, 'Inventory Collections');
-  }
+  const serviceRows = [{
+    'Service Department Page URL': profileData?.requiredUrls?.service || 'MISSING',
+    'Service Scheduler URL': profileData?.actionUrls?.serviceScheduler || 'MISSING',
+    'Brands Serviced': profileData?.serviceDetails?.brandsServiced?.join(', ') || 'MISSING',
+    'Repair Types / Specialties Listed': profileData?.serviceDetails?.claims?.join(', ') || 'MISSING',
+    'Verification Status': profileData?.requiredUrls?.service ? 'VERIFIED' : 'MISSING'
+  }];
+  const wsService = XLSX.utils.json_to_sheet(serviceRows);
+  autoSizeColumns(wsService, serviceRows);
+  XLSX.utils.book_append_sheet(wb, wsService, 'Service Dept');
 
   // ============================================================================
-  // 4. BRANDS & SHOWROOMS SHEET
+  // TAB 6: PAINT & BODY SHOP
   // ============================================================================
-  const brandRows = [];
-  (groupedData?.collections?.brandDirectories || []).forEach(link => {
-    brandRows.push({ 'URL': link.url || '', 'Anchor Text': link.text || '', 'Collection Type': 'Brand Directory' });
+  const bodyRows = [{
+    'Paint / Body Shop Page URL': profileData?.requiredUrls?.bodyShop || 'MISSING',
+    'Collision Repair Services Offered': profileData?.bodyShopDetails?.servicesOffered?.join(', ') || 'MISSING',
+    'Verification Status': profileData?.requiredUrls?.bodyShop ? 'VERIFIED' : 'MISSING'
+  }];
+  const wsBody = XLSX.utils.json_to_sheet(bodyRows);
+  autoSizeColumns(wsBody, bodyRows);
+  XLSX.utils.book_append_sheet(wb, wsBody, 'Paint & Body Shop');
+
+  // ============================================================================
+  // TAB 7: PARTS DEPARTMENT
+  // ============================================================================
+  const partsRows = [{
+    'Parts Department Page URL': profileData?.requiredUrls?.parts || 'MISSING',
+    'Request Parts / Order Form URL': profileData?.actionUrls?.partsRequest || 'MISSING',
+    'OEM Parts Support': profileData?.partsDetails?.oemSupport ? 'VERIFIED' : 'MISSING',
+    'Aftermarket Parts Support': profileData?.partsDetails?.aftermarketSupport ? 'VERIFIED' : 'MISSING',
+    'Verification Status': profileData?.requiredUrls?.parts ? 'VERIFIED' : 'MISSING'
+  }];
+  const wsParts = XLSX.utils.json_to_sheet(partsRows);
+  autoSizeColumns(wsParts, partsRows);
+  XLSX.utils.book_append_sheet(wb, wsParts, 'Parts Dept');
+
+  // ============================================================================
+  // TAB 8: FINANCE & PROMOTIONS
+  // ============================================================================
+  const promoRows = [];
+  // Insert the main finance info first
+  promoRows.push({
+    'Finance Page URL': profileData?.requiredUrls?.finance || 'MISSING',
+    'Named Lenders': profileData?.financeDetails?.lendingPartners?.join(', ') || 'MISSING',
+    'Promotion Title / Offer Text': 'N/A',
+    'Verification Status': profileData?.requiredUrls?.finance ? 'VERIFIED' : 'MISSING'
   });
-  (groupedData?.collections?.brandModelLists || []).forEach(link => {
-    brandRows.push({ 'URL': link.url || '', 'Anchor Text': link.text || '', 'Collection Type': 'Model List' });
-  });
-  (groupedData?.collections?.modelCatalogFilters || []).forEach(link => {
-    brandRows.push({ 'URL': link.url || '', 'Anchor Text': link.text || '', 'Collection Type': 'Catalog Filter' });
-  });
-
-  if (brandRows.length > 0) {
-    const wsBrand = XLSX.utils.json_to_sheet(brandRows);
-    autoSizeColumns(wsBrand, brandRows);
-    XLSX.utils.book_append_sheet(wb, wsBrand, 'Brands & Showrooms');
-  }
-
-  // ============================================================================
-  // 5. PARTS & SERVICE SHEET
-  // ============================================================================
-  const partsRows = [];
-  (groupedData?.parts || []).forEach(link => {
-    partsRows.push({ 'URL': link.url || '', 'Anchor Text': link.text || '', 'Department': 'Parts/Service' });
-  });
-
-  if (partsRows.length > 0) {
-    const wsParts = XLSX.utils.json_to_sheet(partsRows);
-    autoSizeColumns(wsParts, partsRows);
-    XLSX.utils.book_append_sheet(wb, wsParts, 'Parts & Service');
-  }
-
-  // ============================================================================
-  // 6. PROMOTIONS SHEET
-  // ============================================================================
-  const promotionRows = [];
+  
+  // Then list out explicit promotion links found
   (groupedData?.promotions || []).forEach(link => {
-    promotionRows.push({ 'URL': link.url || '', 'Anchor Text': link.text || '', 'Category': 'Promotion' });
+    promoRows.push({
+      'Finance Page URL': link.url,
+      'Named Lenders': 'N/A',
+      'Promotion Title / Offer Text': link.text,
+      'Verification Status': 'VERIFIED'
+    });
   });
 
-  if (promotionRows.length > 0) {
-    const wsPromo = XLSX.utils.json_to_sheet(promotionRows);
-    autoSizeColumns(wsPromo, promotionRows);
-    XLSX.utils.book_append_sheet(wb, wsPromo, 'Promotions');
-  }
+  const wsPromo = XLSX.utils.json_to_sheet(promoRows);
+  autoSizeColumns(wsPromo, promoRows);
+  XLSX.utils.book_append_sheet(wb, wsPromo, 'Finance & Promotions');
 
   // ============================================================================
-  // 7. BLOGS & NEWS SHEET (NEW)
+  // TAB 9: BLOG / CONTENT PAGES
   // ============================================================================
   const blogRows = [];
   (groupedData?.blogs || []).forEach(link => {
-    blogRows.push({ 'URL': link.url || '', 'Anchor Text': link.text || '', 'Category': 'Blog / News Article' });
+    blogRows.push({
+      'Blog / Article URL': link.url,
+      'Blog Title': link.text,
+      'Target Keyword(s) Found': 'INFERRED', // Handled later via semantic analysis
+      'Verification Status': 'VERIFIED'
+    });
   });
-
+  
   if (blogRows.length > 0) {
     const wsBlog = XLSX.utils.json_to_sheet(blogRows);
     autoSizeColumns(wsBlog, blogRows);
-    XLSX.utils.book_append_sheet(wb, wsBlog, 'Blogs & News');
+    XLSX.utils.book_append_sheet(wb, wsBlog, 'Blog Content');
   }
 
   // ============================================================================
-  // 8. STATIC PAGES & MISC SHEET
+  // TAB 10: SITE HEALTH & QA (404s, MISSING DATA)
+  // ============================================================================
+  const healthRows = [];
+  (groupedData?.deadLinks || []).forEach(link => {
+    healthRows.push({ 'Issue Type': '404 / Broken Link', 'URL': link.url, 'Context': link.text, 'Status': 'VERIFIED ERROR' });
+  });
+  
+  if (!profileData?.requiredUrls?.finance) healthRows.push({ 'Issue Type': 'Missing Required Core Page', 'URL': 'MISSING', 'Context': 'Finance / Credit Page', 'Status': 'VERIFIED ERROR' });
+  if (!profileData?.requiredUrls?.parts) healthRows.push({ 'Issue Type': 'Missing Required Core Page', 'URL': 'MISSING', 'Context': 'Parts Department Page', 'Status': 'VERIFIED ERROR' });
+  if (!profileData?.actionUrls?.googleReviews) healthRows.push({ 'Issue Type': 'Missing Reputation Link', 'URL': 'MISSING', 'Context': 'Google Review URL missing', 'Status': 'VERIFIED ERROR' });
+
+  if (healthRows.length > 0) {
+    const wsHealth = XLSX.utils.json_to_sheet(healthRows);
+    autoSizeColumns(wsHealth, healthRows);
+    XLSX.utils.book_append_sheet(wb, wsHealth, 'Site Health QA');
+  }
+
+  // ============================================================================
+  // TAB 11: STATIC & MISCELLANEOUS PAGES
   // ============================================================================
   const staticRows = [];
   (groupedData?.staticPages || []).forEach(link => {
-    staticRows.push({ 'URL': link.url || '', 'Anchor Text': link.text || '', 'Category': 'Static Page' });
+    staticRows.push({ 'Page URL': link.url, 'Anchor / Page Title': link.text, 'Page Category': 'Static Content' });
   });
   (groupedData?.other || []).forEach(link => {
-    staticRows.push({ 'URL': link.url || '', 'Anchor Text': link.text || '', 'Category': 'Other' });
+    staticRows.push({ 'Page URL': link.url, 'Anchor / Page Title': link.text, 'Page Category': 'Misc/Uncategorized' });
   });
 
   if (staticRows.length > 0) {
@@ -276,8 +296,9 @@ export const constructGroupedDataFromFlatList = (flatLinks) => {
     },
     promotions: [],
     parts: [],
-    blogs: [], // Added to structure
+    blogs: [], 
     staticPages: [],
+    deadLinks: [], // Added for Tab 10
     other: []
   };
 
@@ -297,9 +318,11 @@ export const constructGroupedDataFromFlatList = (flatLinks) => {
       else if (link.subCategory === 'used-inventory') grouped.inventory.usedInventory.mainLinks.push(link);
       else grouped.inventory.generalInventory.mainLinks.push(link);
     }
-    // Added blog classification router
     else if (link.category === 'blog') {
       grouped.blogs.push(link);
+    }
+    else if (link.category === 'dead_link') {
+      grouped.deadLinks.push(link);
     }
     else if (link.category === 'page') {
       if (link.subCategory === 'promotion-page') grouped.promotions.push(link);

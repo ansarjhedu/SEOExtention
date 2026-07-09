@@ -9,9 +9,10 @@ export default function SummaryWidgets({ links }) {
     collections: links.filter(l => l.category === 'collection').length,
     vehicles: links.filter(l => l.category === 'product').length,
     promotions: links.filter(l => l.category === 'page' && l.subCategory === 'promotion-page').length,
-    parts: links.filter(l => l.category === 'page' && l.subCategory === 'parts-page').length,
-    blogs: links.filter(l => l.category === 'blogs').length,
-    error404: links.filter(l => l.category === 'error404').length, // Added 404 tracker
+    // 🚨 FIXED: Now catches all engine variations for Parts
+    parts: links.filter(l => l.subCategory === 'parts-page' || l.subCategory === 'parts-main' || l.category === 'parts').length,
+    blogs: links.filter(l => l.category === 'blog').length, 
+    error404: links.filter(l => l.category === 'dead_link').length, 
   };
 
   const metrics = [
@@ -19,10 +20,10 @@ export default function SummaryWidgets({ links }) {
     { key: 'inventory', label: 'Inventory', color: 'text-sky-400', bg: 'bg-sky-950/10' },
     { key: 'collections', label: 'Brands', color: 'text-violet-400', bg: 'bg-violet-950/10' },
     { key: 'vehicles', label: 'Products', color: 'text-emerald-400', bg: 'bg-emerald-950/10' },
-    { key: 'promotions', label: 'Promos', color: 'text-indigo-400', bg: 'bg-indigo-950/10' },
+    { key: 'promotions', label: 'Promos', color: 'text-fuchsia-400', bg: 'bg-fuchsia-950/10' },
     { key: 'parts', label: 'Parts', color: 'text-rose-400', bg: 'bg-rose-950/10' },
-    { key: 'blogs', label: 'Blogs', color: 'text-amber-400', bg: 'bg-amber-950/10' }, // Added
-    { key: 'error404', label: '404s', color: 'text-red-500', bg: 'bg-red-950/10' }, // Added
+    { key: 'blogs', label: 'Blogs', color: 'text-amber-400', bg: 'bg-amber-950/10' },
+    { key: 'error404', label: '404s', color: 'text-red-500', bg: 'bg-red-950/10' },
   ];
 
   return (
