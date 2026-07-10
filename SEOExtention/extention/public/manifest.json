@@ -3,6 +3,14 @@
   "name": "MaxOpp aiSEO crawler",
   "version": "2.0.0",
   "description": "High-accuracy client-side link extraction and crawling tool for SEO audits.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAv1IVRwD/RWfKNir/Kgv7uccsVOR9TTrmtamtmaqmuGEOUdadIfSCZ+qiYj6vt0r7VzoZrqK9IxkqrfCsErgsdgOO2vwBFYhc2+hbjX0j3xopk7rfai+dzYXXJ2ov7zzHIHFMWeHk6z5Tqag3ONvcwjHnVZS+HsDHCjgwNO26dD0Cxz3VB2SV9ekDLr+NTM/oHZpI4nn3Pihv6CXZmWGkz93U1m2r1S3Vtm/KDfIdcHkuldEiuKCTIZWLLaEHPmmYohizfBudOFelnWU6FqVtrn0QZI+6f6cMGeHNRmt1nuScNmcNjTjXKaD/I1/KQYilQC/KOSUoiAXWO8WEFTdSLQIDAQAB",
+
+  "icons": {
+    "16": "./icon.png",
+    "48": "./icon.png",
+    "128": "./icon.png"
+  },
+  
   "permissions": [
     "sidePanel",
     "activeTab",
@@ -21,6 +29,11 @@
     "default_path": "index.html"
   },
   "action": {
-    "default_title": "Open MAXOP"
+    "default_title": "Dealership Crawler",
+    "default_icon": {
+      "16": "./icon.png",
+      "48": "./icon.png",
+      "128": "./icon.png"
+    }
   }
 }

@@ -22,7 +22,7 @@ export default function Header({ scanning, serverOnline, activeTabTitle }) {
               MaxOpp aiSEO
             </h1>
             <span className="text-[9px] text-slate-400 font-medium tracking-wider mt-0.5">
-              Intelligence Engine v1.0
+              Intelligence Engine v2.0
             </span>
           </div>
         </div>
